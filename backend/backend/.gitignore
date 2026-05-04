@@ -1,0 +1,29 @@
+# ===== Java =====
+target/
+*.log
+
+# ===== Env =====
+.env
+
+# ===== Uploads =====
+uploads/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+
+# ===== OS =====
+.DS_Store
+
+# ===== Python =====
+ai-service/venv/
+ai-service/__pycache__/
+*.pyc
+
+# ===== Misc =====
+*.tmp
+*.swp
+
+# ===== Spring =====
+HELP.md
