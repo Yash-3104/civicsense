@@ -28,3 +28,16 @@ target/
 .idea/
 .vscode/
 node_modules/
+# ===== Uploads =====
+uploads/
+# ===== Python =====
+ai-service/venv/
+ai-service/__pycache__/
+*.pyc
+# ===== OS =====
+.DS_Store
+
+# ===== Misc =====
+*.log
+*.tmp
+*.swp
