@@ -61,4 +61,8 @@ public class IssueController {
  ) {
      return issueService.uploadImage(id, file);
  }
+ @DeleteMapping("/{id}")
+public void deleteIssue(@PathVariable UUID id) {
+    issueService.deleteIssue(id);
+}
 }

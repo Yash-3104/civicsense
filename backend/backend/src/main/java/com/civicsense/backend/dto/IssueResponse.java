@@ -25,4 +25,6 @@ public class IssueResponse {
     private UserSummary reportedBy;
 
     private LocalDateTime createdAt;
+
+    private String imageUrl;
 }

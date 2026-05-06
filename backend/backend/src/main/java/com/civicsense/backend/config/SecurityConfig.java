@@ -25,6 +25,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                .cors(cors -> {})
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -35,6 +36,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/officer/**").hasAnyRole("OFFICER", "ADMIN")
                         .requestMatchers("/api/citizen/**").hasAnyRole("CITIZEN", "OFFICER", "ADMIN")
                         .requestMatchers("/api/issues/**").hasAnyRole("CITIZEN", "OFFICER", "ADMIN")
+                        .requestMatchers("OPTIONS", "/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())

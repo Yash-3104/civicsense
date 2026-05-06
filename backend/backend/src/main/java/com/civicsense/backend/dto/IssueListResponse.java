@@ -14,4 +14,6 @@ public class IssueListResponse {
     private String category;
     private String address;
     private String severity;
+    private Double latitude;
+    private Double longitude;
 }

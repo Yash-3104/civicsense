@@ -14,31 +14,34 @@ public class FileStorageService {
     @Value("${file.upload-dir}")
     private String uploadDir;
 
-    public String storeFile(MultipartFile file) {
+    public Path storeFile(MultipartFile file) {
 
         try {
-            //  Normalize + absolute path (fixes WSL + relative issues)
-            Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
-
-            //  Ensure directory exists
+    
+            Path uploadPath = Paths.get(uploadDir)
+                    .toAbsolutePath()
+                    .normalize();
+    
             if (!Files.exists(uploadPath)) {
                 Files.createDirectories(uploadPath);
             }
-
-            //  Generate unique filename
-            String fileName = UUID.randomUUID() + "_" + file.getOriginalFilename();
-
-            //  Resolve full path safely
+    
+            String fileName =
+                    UUID.randomUUID() + "_" + file.getOriginalFilename();
+    
             Path filePath = uploadPath.resolve(fileName);
-
-            //  Copy file (safe + overwrite if exists)
-            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-
-            return fileName;
-
+    
+            Files.copy(
+                    file.getInputStream(),
+                    filePath,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+    
+            return filePath;
+    
         } catch (IOException e) {
-            e.printStackTrace(); //  IMPORTANT for debugging
+            e.printStackTrace();
             throw new RuntimeException("File upload failed");
         }
-    }
+    } 
 }

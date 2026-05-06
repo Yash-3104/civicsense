@@ -16,4 +16,5 @@ public class IssueMapResponse {
 
     private Double latitude;
     private Double longitude;
+    private String imageUrl;
 }

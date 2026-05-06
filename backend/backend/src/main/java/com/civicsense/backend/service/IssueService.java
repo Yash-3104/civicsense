@@ -5,7 +5,9 @@ import com.civicsense.backend.entity.*;
 import com.civicsense.backend.repository.*;
 import com.civicsense.backend.security.CustomUserDetails;
 import com.civicsense.backend.specification.IssueSpecification;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.data.domain.*;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -21,23 +23,22 @@ public class IssueService {
 
     private final IssueRepository issueRepository;
     private final UserRepository userRepository;
-
-    // 🔥 FILE + MEDIA
-    private final FileStorageService fileStorageService;
     private final IssueMediaRepository issueMediaRepository;
 
-    // 🔥 KAFKA PRODUCER
+    private final FileStorageService fileStorageService;
     private final IssueEventProducer issueEventProducer;
 
-    // ================= CREATE ISSUE =================
     public IssueResponse createIssue(CreateIssueRequest request) {
 
         CustomUserDetails userDetails =
-                (CustomUserDetails) SecurityContextHolder.getContext()
-                        .getAuthentication().getPrincipal();
+                (CustomUserDetails)
+                        SecurityContextHolder.getContext()
+                                .getAuthentication()
+                                .getPrincipal();
 
         User user = userRepository.findById(userDetails.getId())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() ->
+                        new RuntimeException("User not found"));
 
         Issue issue = Issue.builder()
                 .title(request.getTitle())
@@ -59,23 +60,42 @@ public class IssueService {
         return mapToDetailedResponse(saved);
     }
 
-    // ================= GET ISSUES =================
-    public PaginatedResponse<IssueListResponse> getIssues(IssueFilterRequest filter, int page, int size) {
+    public void deleteIssue(UUID id) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Issue issue = issueRepository.findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException("Issue not found"));
+
+        issueRepository.delete(issue);
+    }
+
+    public PaginatedResponse<IssueListResponse> getIssues(
+            IssueFilterRequest filter,
+            int page,
+            int size
+    ) {
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by("createdAt").descending()
+        );
 
         Page<Issue> issues = issueRepository.findAll(
                 IssueSpecification.filter(filter),
                 pageable
         );
 
-        List<IssueListResponse> data = issues.getContent().stream()
+        List<IssueListResponse> data = issues.getContent()
+                .stream()
                 .map(issue -> IssueListResponse.builder()
                         .id(issue.getId())
                         .title(issue.getTitle())
                         .category(issue.getCategory().name())
                         .address(issue.getAddress())
                         .severity(issue.getSeverity().name())
+                        .latitude(issue.getLatitude())
+                        .longitude(issue.getLongitude())
                         .build()
                 )
                 .toList();
@@ -89,43 +109,72 @@ public class IssueService {
                 .build();
     }
 
-    // ================= GET BY ID =================
     public IssueResponse getIssueById(UUID id) {
+
         Issue issue = issueRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Issue not found"));
+                .orElseThrow(() ->
+                        new RuntimeException("Issue not found"));
 
         return mapToDetailedResponse(issue);
     }
 
-    // ================= GEO =================
-    public List<IssueMapResponse> getNearbyIssues(double lat, double lng, double radius) {
+    public List<IssueMapResponse> getNearbyIssues(
+            double lat,
+            double lng,
+            double radius
+    ) {
 
-        List<Issue> issues = issueRepository.findNearbyIssues(lat, lng, radius);
+        List<Issue> issues =
+                issueRepository.findNearbyIssues(lat, lng, radius);
 
         return issues.stream()
-                .map(issue -> IssueMapResponse.builder()
-                        .id(issue.getId())
-                        .title(issue.getTitle())
-                        .category(issue.getCategory().name())
-                        .severity(issue.getSeverity().name())
-                        .latitude(issue.getLatitude())
-                        .longitude(issue.getLongitude())
-                        .build()
-                )
+                .map(issue -> {
+
+                    String imageUrl = null;
+
+                    if (
+                            issue.getMedia() != null &&
+                            !issue.getMedia().isEmpty()
+                    ) {
+
+                        imageUrl =
+                                "http://localhost:8031/uploads/" +
+                                issue.getMedia()
+                                        .get(0)
+                                        .getMediaUrl();
+                    }
+
+                    return IssueMapResponse.builder()
+                            .id(issue.getId())
+                            .title(issue.getTitle())
+                            .category(issue.getCategory().name())
+                            .severity(issue.getSeverity().name())
+                            .latitude(issue.getLatitude())
+                            .longitude(issue.getLongitude())
+                            .imageUrl(imageUrl)
+                            .build();
+                })
                 .toList();
     }
 
-    // ================= 🔥 IMAGE UPLOAD (KAFKA) =================
-    public String uploadImage(UUID issueId, MultipartFile file) {
+    public String uploadImage(
+            UUID issueId,
+            MultipartFile file
+    ) {
 
         Issue issue = issueRepository.findById(issueId)
-                .orElseThrow(() -> new RuntimeException("Issue not found"));
+                .orElseThrow(() ->
+                        new RuntimeException("Issue not found"));
 
-        // 1️⃣ Save file
-        String fileName = fileStorageService.storeFile(file);
-        String fullPath = "uploads/" + fileName;
+        java.nio.file.Path savedPath =
+                fileStorageService.storeFile(file);
 
-        // 2️⃣ Save media
+        String fileName =
+                savedPath.getFileName().toString();
+
+        String fullPath =
+                savedPath.toString();
+
         IssueMedia media = IssueMedia.builder()
                 .issue(issue)
                 .mediaUrl(fileName)
@@ -134,7 +183,6 @@ public class IssueService {
 
         issueMediaRepository.save(media);
 
-        // 3️⃣ 🔥 PUBLISH EVENT TO KAFKA
         issueEventProducer.publishImageUploaded(
                 IssueImageUploadedEvent.builder()
                         .issueId(issue.getId())
@@ -143,12 +191,11 @@ public class IssueService {
                         .build()
         );
 
-        // 4️⃣ Return immediately
         return "Image uploaded, AI processing queued";
     }
 
-    // ================= MAPPER =================
     private IssueResponse mapToDetailedResponse(Issue issue) {
+
         return IssueResponse.builder()
                 .id(issue.getId())
                 .title(issue.getTitle())
