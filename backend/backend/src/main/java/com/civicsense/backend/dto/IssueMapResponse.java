@@ -10,11 +10,16 @@ import java.util.UUID;
 public class IssueMapResponse {
 
     private UUID id;
+
     private String title;
     private String category;
+    private String status;
     private String severity;
 
     private Double latitude;
     private Double longitude;
+
+    private String address;
+
     private String imageUrl;
 }

@@ -92,10 +92,11 @@ public class IssueService {
                         .id(issue.getId())
                         .title(issue.getTitle())
                         .category(issue.getCategory().name())
-                        .address(issue.getAddress())
+                        .status(issue.getStatus().name())
                         .severity(issue.getSeverity().name())
-                        .latitude(issue.getLatitude())
-                        .longitude(issue.getLongitude())
+                        .address(issue.getAddress())
+                        .createdAt(issue.getCreatedAt())
+                        .imageUrl(getPrimaryImageUrl(issue))
                         .build()
                 )
                 .toList();
@@ -128,32 +129,18 @@ public class IssueService {
                 issueRepository.findNearbyIssues(lat, lng, radius);
 
         return issues.stream()
-                .map(issue -> {
-
-                    String imageUrl = null;
-
-                    if (
-                            issue.getMedia() != null &&
-                            !issue.getMedia().isEmpty()
-                    ) {
-
-                        imageUrl =
-                                "http://localhost:8031/uploads/" +
-                                issue.getMedia()
-                                        .get(0)
-                                        .getMediaUrl();
-                    }
-
-                    return IssueMapResponse.builder()
-                            .id(issue.getId())
-                            .title(issue.getTitle())
-                            .category(issue.getCategory().name())
-                            .severity(issue.getSeverity().name())
-                            .latitude(issue.getLatitude())
-                            .longitude(issue.getLongitude())
-                            .imageUrl(imageUrl)
-                            .build();
-                })
+                .map(issue -> IssueMapResponse.builder()
+                        .id(issue.getId())
+                        .title(issue.getTitle())
+                        .category(issue.getCategory().name())
+                        .status(issue.getStatus().name())
+                        .severity(issue.getSeverity().name())
+                        .latitude(issue.getLatitude())
+                        .longitude(issue.getLongitude())
+                        .address(issue.getAddress())
+                        .imageUrl(getPrimaryImageUrl(issue))
+                        .build()
+                )
                 .toList();
     }
 
@@ -194,25 +181,102 @@ public class IssueService {
         return "Image uploaded, AI processing queued";
     }
 
+    private String buildImageUrl(String mediaUrl) {
+
+        if (mediaUrl == null || mediaUrl.isBlank()) {
+            return null;
+        }
+
+        if (
+                mediaUrl.startsWith("http://") ||
+                mediaUrl.startsWith("https://")
+        ) {
+            return mediaUrl;
+        }
+
+        return "http://localhost:8031/uploads/" + mediaUrl;
+    }
+
+    private List<String> getMediaUrls(Issue issue) {
+
+        if (
+                issue.getMedia() == null ||
+                issue.getMedia().isEmpty()
+        ) {
+            return List.of();
+        }
+
+        return issue.getMedia()
+                .stream()
+                .map(media ->
+                        buildImageUrl(media.getMediaUrl())
+                )
+                .toList();
+    }
+
+    private String getPrimaryImageUrl(Issue issue) {
+
+        List<String> mediaUrls = getMediaUrls(issue);
+
+        if (mediaUrls.isEmpty()) {
+            return null;
+        }
+
+        return mediaUrls.get(0);
+    }
+
     private IssueResponse mapToDetailedResponse(Issue issue) {
+
+        List<String> mediaUrls =
+                getMediaUrls(issue);
 
         return IssueResponse.builder()
                 .id(issue.getId())
+
                 .title(issue.getTitle())
                 .description(issue.getDescription())
+
                 .category(issue.getCategory().name())
                 .status(issue.getStatus().name())
                 .severity(issue.getSeverity().name())
+
+                .priorityScore(issue.getPriorityScore())
+
                 .latitude(issue.getLatitude())
                 .longitude(issue.getLongitude())
                 .address(issue.getAddress())
+
                 .reportedBy(
-                        UserSummary.builder()
+                        issue.getReportedBy() == null
+                                ? null
+                                : UserSummary.builder()
                                 .id(issue.getReportedBy().getId())
                                 .name(issue.getReportedBy().getName())
                                 .build()
                 )
+
+                .assignedTo(
+                        issue.getAssignedTo() == null
+                                ? null
+                                : UserSummary.builder()
+                                .id(issue.getAssignedTo().getId())
+                                .name(issue.getAssignedTo().getName())
+                                .build()
+                )
+
                 .createdAt(issue.getCreatedAt())
+                .updatedAt(issue.getUpdatedAt())
+
+                .imageUrl(
+                        mediaUrls.isEmpty()
+                                ? null
+                                : mediaUrls.get(0)
+                )
+
+                .mediaUrls(mediaUrls)
+
+                .aiDescription(issue.getAiDescription())
+
                 .build();
     }
 }

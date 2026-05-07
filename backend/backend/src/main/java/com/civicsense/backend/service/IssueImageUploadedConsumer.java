@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 
 @Service
@@ -23,28 +24,81 @@ public class IssueImageUploadedConsumer {
     public void handleImageUploaded(IssueImageUploadedEvent event) {
 
         try {
+
+            System.out.println();
+            System.out.println("================ KAFKA AI PROCESS START ================");
+            System.out.println("Issue ID: " + event.getIssueId());
+            System.out.println("File path: " + event.getFilePath());
+            System.out.println("File name: " + event.getFileName());
+
             Issue issue = issueRepository.findById(event.getIssueId())
-                    .orElseThrow(() -> new RuntimeException("Issue not found"));
+                    .orElseThrow(() ->
+                            new RuntimeException("Issue not found"));
 
             Map<String, Object> result =
                     aiServiceClient.analyzeImageFromPath(event.getFilePath());
 
-            Boolean isValid = (Boolean) result.get("is_valid_issue");
-            String severity = (String) result.get("severity");
+            System.out.println("AI RESULT: " + result);
 
-            if (Boolean.FALSE.equals(isValid)) {
-                issue.setStatus(IssueStatus.REJECTED);
-            } else {
-                issue.setStatus(IssueStatus.VERIFIED);
-                issue.setSeverity(SeverityLevel.valueOf(severity));
+            if (result == null) {
+                throw new RuntimeException("AI service returned null response");
             }
 
-            issueRepository.save(issue);
+            Boolean isValid =
+                    (Boolean) result.get("is_valid_issue");
+
+            String severity =
+                    (String) result.get("severity");
+
+            String aiDescription =
+                    (String) result.get("description");
+
+            String rawCaption =
+                    (String) result.get("raw_caption");
+
+            System.out.println("AI valid issue: " + isValid);
+            System.out.println("AI severity: " + severity);
+            System.out.println("AI description: " + aiDescription);
+            System.out.println("AI raw caption: " + rawCaption);
+
+            if (aiDescription == null || aiDescription.isBlank()) {
+                aiDescription = "AI analysis completed successfully.";
+            }
+
+            issue.setAiDescription(aiDescription);
+
+            if (Boolean.FALSE.equals(isValid)) {
+
+                issue.setStatus(IssueStatus.REJECTED);
+
+            } else {
+
+                issue.setStatus(IssueStatus.VERIFIED);
+
+                if (severity != null && !severity.isBlank()) {
+                    issue.setSeverity(SeverityLevel.valueOf(severity));
+                }
+            }
+
+            issue.setUpdatedAt(LocalDateTime.now());
+
+            Issue savedIssue = issueRepository.save(issue);
+
+            System.out.println(
+                    "SAVED AI DESCRIPTION: " +
+                            savedIssue.getAiDescription()
+            );
 
             System.out.println("Kafka AI processing completed for issue: " + event.getIssueId());
+            System.out.println("================ KAFKA AI PROCESS SUCCESS ================");
+            System.out.println();
 
         } catch (Exception e) {
-            System.out.println("Kafka AI processing failed: " + e.getMessage());
+
+            System.out.println();
+            System.out.println("================ KAFKA AI PROCESS FAILED ================");
+            e.printStackTrace();
+            System.out.println();
         }
     }
 }

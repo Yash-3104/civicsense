@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -11,6 +12,7 @@ import java.util.UUID;
 public class IssueResponse {
 
     private UUID id;
+
     private String title;
     private String description;
 
@@ -18,13 +20,24 @@ public class IssueResponse {
     private String status;
     private String severity;
 
+    private Double priorityScore;
+
     private Double latitude;
     private Double longitude;
     private String address;
 
     private UserSummary reportedBy;
+    private UserSummary assignedTo;
 
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 
+    // First/main image for quick display
     private String imageUrl;
+
+    // Future gallery support
+    private List<String> mediaUrls;
+
+    // AI-generated summary/verification text
+    private String aiDescription;
 }

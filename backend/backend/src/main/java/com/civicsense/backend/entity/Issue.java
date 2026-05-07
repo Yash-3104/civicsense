@@ -59,4 +59,7 @@ public class Issue {
     @OneToMany(mappedBy = "issue", cascade = CascadeType.ALL)
     private List<IssueMedia> media;
 
+    @Column(columnDefinition = "TEXT")
+    private String aiDescription;
+
 }

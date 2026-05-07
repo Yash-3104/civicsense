@@ -3,6 +3,7 @@ package com.civicsense.backend.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
@@ -10,10 +11,15 @@ import java.util.UUID;
 public class IssueListResponse {
 
     private UUID id;
+
     private String title;
     private String category;
-    private String address;
+    private String status;
     private String severity;
-    private Double latitude;
-    private Double longitude;
+
+    private String address;
+
+    private LocalDateTime createdAt;
+
+    private String imageUrl;
 }

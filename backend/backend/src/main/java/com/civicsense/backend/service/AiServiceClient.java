@@ -1,6 +1,7 @@
 package com.civicsense.backend.service;
 
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.*;
@@ -18,15 +19,25 @@ public class AiServiceClient {
 
     private final RestTemplate restTemplate;
 
-    // ================= DIRECT FILE =================
-    public Map<String, Object> analyzeImage(MultipartFile file) {
+    // =====================================================
+    // DIRECT FILE
+    // =====================================================
+
+    public Map<String, Object> analyzeImage(
+            MultipartFile file
+    ) {
 
         String url = "http://localhost:8000/analyze";
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        headers.setContentType(
+                MediaType.MULTIPART_FORM_DATA
+        );
+
+        MultiValueMap<String, Object> body =
+                new LinkedMultiValueMap<>();
+
         body.add("file", file.getResource());
 
         HttpEntity<MultiValueMap<String, Object>> request =
@@ -40,26 +51,46 @@ public class AiServiceClient {
                         new ParameterizedTypeReference<Map<String, Object>>() {}
                 );
 
+        System.out.println(
+                "AI DIRECT RESPONSE: " +
+                response.getBody()
+        );
+
         return response.getBody();
     }
 
-    // ================= FILE PATH (USED IN ASYNC) =================
-    public Map<String, Object> analyzeImageFromPath(String filePath) {
+    // =====================================================
+    // FILE PATH (ASYNC PIPELINE)
+    // =====================================================
+
+    public Map<String, Object> analyzeImageFromPath(
+            String filePath
+    ) {
 
         String url = "http://localhost:8000/analyze";
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        FileSystemResource fileResource = new FileSystemResource(filePath);
+        headers.setContentType(
+                MediaType.MULTIPART_FORM_DATA
+        );
 
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        FileSystemResource fileResource =
+                new FileSystemResource(filePath);
+
+        System.out.println(
+                "Sending file to AI service: " +
+                fileResource.getFilename()
+        );
+
+        MultiValueMap<String, Object> body =
+                new LinkedMultiValueMap<>();
+
         body.add("file", fileResource);
 
         HttpEntity<MultiValueMap<String, Object>> request =
                 new HttpEntity<>(body, headers);
 
-        //  FIXED HERE (NO RAW TYPE)
         ResponseEntity<Map<String, Object>> response =
                 restTemplate.exchange(
                         url,
@@ -67,6 +98,11 @@ public class AiServiceClient {
                         request,
                         new ParameterizedTypeReference<Map<String, Object>>() {}
                 );
+
+        System.out.println(
+                "AI ASYNC RESPONSE: " +
+                response.getBody()
+        );
 
         return response.getBody();
     }
