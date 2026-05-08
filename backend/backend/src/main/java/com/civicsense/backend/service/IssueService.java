@@ -5,7 +5,7 @@ import com.civicsense.backend.entity.*;
 import com.civicsense.backend.repository.*;
 import com.civicsense.backend.security.CustomUserDetails;
 import com.civicsense.backend.specification.IssueSpecification;
-
+import com.civicsense.backend.dto.RealtimeEventType;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.data.domain.*;
@@ -27,6 +27,8 @@ public class IssueService {
 
     private final FileStorageService fileStorageService;
     private final IssueEventProducer issueEventProducer;
+    private final RealtimeEventService realtimeEventService;
+
 
     public IssueResponse createIssue(CreateIssueRequest request) {
 
@@ -57,6 +59,11 @@ public class IssueService {
 
         Issue saved = issueRepository.save(issue);
 
+        realtimeEventService.publishIssueEvent(
+                RealtimeEventType.NEW_ISSUE,
+                saved
+        );
+
         return mapToDetailedResponse(saved);
     }
 
@@ -67,6 +74,8 @@ public class IssueService {
                         new RuntimeException("Issue not found"));
 
         issueRepository.delete(issue);
+
+        realtimeEventService.publishIssueDeleted(id);
     }
 
     public PaginatedResponse<IssueListResponse> getIssues(

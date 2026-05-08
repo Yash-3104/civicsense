@@ -1,18 +1,31 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "sonner";
+
 import App from "./App";
 import "./index.css";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 
-
-const queryClient = new QueryClient();
+import AppQueryProvider from "./providers/QueryProvider";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <QueryClientProvider client={queryClient}>
+  <React.StrictMode>
     <BrowserRouter>
-      <App />
+      <AppQueryProvider>
+        <App />
+
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          theme="dark"
+        />
+
+      </AppQueryProvider>
     </BrowserRouter>
-  </QueryClientProvider>
+  </React.StrictMode>
 );

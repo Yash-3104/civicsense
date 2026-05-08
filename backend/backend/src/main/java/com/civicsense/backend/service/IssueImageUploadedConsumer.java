@@ -1,9 +1,14 @@
 package com.civicsense.backend.service;
 
 import com.civicsense.backend.dto.IssueImageUploadedEvent;
-import com.civicsense.backend.entity.*;
+import com.civicsense.backend.dto.RealtimeEventType;
+import com.civicsense.backend.entity.Issue;
+import com.civicsense.backend.entity.IssueStatus;
+import com.civicsense.backend.entity.SeverityLevel;
 import com.civicsense.backend.repository.IssueRepository;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +21,7 @@ public class IssueImageUploadedConsumer {
 
     private final AiServiceClient aiServiceClient;
     private final IssueRepository issueRepository;
+    private final RealtimeEventService realtimeEventService;
 
     @KafkaListener(
             topics = "${app.kafka.topic.issue-image-uploaded}",
@@ -83,6 +89,11 @@ public class IssueImageUploadedConsumer {
             issue.setUpdatedAt(LocalDateTime.now());
 
             Issue savedIssue = issueRepository.save(issue);
+
+            realtimeEventService.publishIssueEvent(
+                    RealtimeEventType.AI_ANALYSIS_COMPLETED,
+                    savedIssue
+            );
 
             System.out.println(
                     "SAVED AI DESCRIPTION: " +
