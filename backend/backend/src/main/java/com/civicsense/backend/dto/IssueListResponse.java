@@ -22,4 +22,8 @@ public class IssueListResponse {
     private LocalDateTime createdAt;
 
     private String imageUrl;
+    private Double aiConfidenceScore;
+    private Double fakeReportLikelihood;
+    private Double duplicateLikelihood;
+    private UUID possibleDuplicateIssueId;
 }

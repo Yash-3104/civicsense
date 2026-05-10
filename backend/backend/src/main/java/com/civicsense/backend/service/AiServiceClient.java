@@ -11,6 +11,10 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.civicsense.backend.dto.DuplicateCheckRequest;
+import com.civicsense.backend.dto.DuplicateCheckResponse;
+
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -106,4 +110,39 @@ public class AiServiceClient {
 
         return response.getBody();
     }
+    public List<Double> checkDuplicateSimilarity(
+        String sourceText,
+        List<String> candidateTexts
+) {
+
+    String url = "http://localhost:8000/duplicate-check";
+
+    DuplicateCheckRequest requestBody =
+            DuplicateCheckRequest.builder()
+                    .sourceText(sourceText)
+                    .candidateTexts(candidateTexts)
+                    .build();
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+
+    HttpEntity<DuplicateCheckRequest> request =
+            new HttpEntity<>(requestBody, headers);
+
+    ResponseEntity<DuplicateCheckResponse> response =
+            restTemplate.postForEntity(
+                    url,
+                    request,
+                    DuplicateCheckResponse.class
+            );
+
+    if (
+            response.getBody() == null ||
+            response.getBody().getScores() == null
+    ) {
+        return List.of();
+    }
+
+    return response.getBody().getScores();
+}
 }

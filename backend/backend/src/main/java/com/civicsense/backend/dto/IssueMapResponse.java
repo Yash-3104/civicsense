@@ -22,4 +22,8 @@ public class IssueMapResponse {
     private String address;
 
     private String imageUrl;
+    private Double aiConfidenceScore;
+    private Double fakeReportLikelihood;
+    private Double duplicateLikelihood;
+    private UUID possibleDuplicateIssueId;
 }

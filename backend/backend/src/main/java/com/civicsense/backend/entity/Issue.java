@@ -62,4 +62,28 @@ public class Issue {
     @Column(columnDefinition = "TEXT")
     private String aiDescription;
 
+    @Column(name = "ai_confidence_score")
+    private Double aiConfidenceScore;
+
+    @Column(name = "fake_report_likelihood")
+    private Double fakeReportLikelihood;
+
+    @Column(name = "severity_confidence")
+    private Double severityConfidence;
+
+    @Column(name = "duplicate_likelihood")
+    private Double duplicateLikelihood;
+
+    @Column(name = "ai_reasoning", columnDefinition = "TEXT")
+    private String aiReasoning;
+
+    @Column(name = "possible_duplicate_issue_id")
+    private UUID possibleDuplicateIssueId;
+
+    @Column(name = "ai_raw_caption", columnDefinition = "TEXT")
+    private String aiRawCaption;
+
+    @Column(name = "ai_clip_label")
+    private String aiClipLabel;
+
 }

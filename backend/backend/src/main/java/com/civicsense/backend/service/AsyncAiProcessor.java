@@ -1,6 +1,8 @@
 package com.civicsense.backend.service;
 
-import com.civicsense.backend.entity.*;
+import com.civicsense.backend.entity.Issue;
+import com.civicsense.backend.entity.IssueStatus;
+import com.civicsense.backend.entity.SeverityLevel;
 import com.civicsense.backend.repository.IssueRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -36,10 +38,6 @@ public class AsyncAiProcessor {
                     .orElseThrow(() ->
                             new RuntimeException("Issue not found"));
 
-            // ---------------------------------------------------
-            // AI REQUEST
-            // ---------------------------------------------------
-
             Map<String, Object> result =
                     aiServiceClient.analyzeImageFromPath(filePath);
 
@@ -63,6 +61,21 @@ public class AsyncAiProcessor {
             String rawCaption =
                     (String) result.get("raw_caption");
 
+            Double aiConfidenceScore =
+                    getDoubleValue(result, "confidence_score");
+
+            Double fakeReportLikelihood =
+                    getDoubleValue(result, "fake_report_likelihood");
+
+            Double severityConfidence =
+                    getDoubleValue(result, "severity_confidence");
+
+            Double duplicateLikelihood =
+                    getDoubleValue(result, "duplicate_likelihood");
+
+            String aiReasoning =
+                    getReasoningText(result);
+
             System.out.println("AI VALID: " + isValid);
 
             System.out.println("AI SEVERITY: " + severity);
@@ -70,10 +83,6 @@ public class AsyncAiProcessor {
             System.out.println("AI DESCRIPTION: " + aiSummary);
 
             System.out.println("AI CAPTION: " + rawCaption);
-
-            // ---------------------------------------------------
-            // FALLBACK DESCRIPTION
-            // ---------------------------------------------------
 
             if (aiSummary == null || aiSummary.isBlank()) {
 
@@ -85,15 +94,13 @@ public class AsyncAiProcessor {
                 );
             }
 
-            // ---------------------------------------------------
-            // SAVE AI DESCRIPTION
-            // ---------------------------------------------------
-
             issue.setAiDescription(aiSummary);
 
-            // ---------------------------------------------------
-            // STATUS / SEVERITY
-            // ---------------------------------------------------
+            issue.setAiConfidenceScore(aiConfidenceScore);
+            issue.setFakeReportLikelihood(fakeReportLikelihood);
+            issue.setSeverityConfidence(severityConfidence);
+            issue.setDuplicateLikelihood(duplicateLikelihood);
+            issue.setAiReasoning(aiReasoning);
 
             if (Boolean.FALSE.equals(isValid)) {
 
@@ -113,16 +120,17 @@ public class AsyncAiProcessor {
 
             issue.setUpdatedAt(LocalDateTime.now());
 
-            // ---------------------------------------------------
-            // SAVE ISSUE
-            // ---------------------------------------------------
-
             Issue savedIssue =
                     issueRepository.save(issue);
 
             System.out.println(
                     "SAVED AI DESCRIPTION: " +
                     savedIssue.getAiDescription()
+            );
+
+            System.out.println(
+                    "AI CONFIDENCE SCORE: " +
+                    savedIssue.getAiConfidenceScore()
             );
 
             System.out.println(
@@ -137,5 +145,42 @@ public class AsyncAiProcessor {
 
             e.printStackTrace();
         }
+    }
+
+    private Double getDoubleValue(Map<String, Object> result, String key) {
+
+        Object value = result.get(key);
+
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+
+        try {
+            return Double.parseDouble(value.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String getReasoningText(Map<String, Object> result) {
+
+        Object value = result.get("reasoning");
+
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof java.util.List<?> list) {
+            return list.stream()
+                    .map(Object::toString)
+                    .toList()
+                    .toString();
+        }
+
+        return value.toString();
     }
 }

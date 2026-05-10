@@ -40,4 +40,12 @@ public class IssueResponse {
 
     // AI-generated summary/verification text
     private String aiDescription;
+
+    private Double aiConfidenceScore;
+    private Double fakeReportLikelihood;
+    private Double severityConfidence;
+    private Double duplicateLikelihood;
+    private String aiReasoning;
+
+    private UUID possibleDuplicateIssueId;
 }

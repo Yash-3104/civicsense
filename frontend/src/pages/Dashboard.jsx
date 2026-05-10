@@ -72,6 +72,26 @@ function MapClickHandler({ onMapClick }) {
   return null;
 }
 
+function MapFocusController({ focusTarget }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || !focusTarget?.lat || !focusTarget?.lng) return;
+
+    map.closePopup();
+
+    map.flyTo(
+      [Number(focusTarget.lat), Number(focusTarget.lng)],
+      Math.max(map.getZoom(), 16),
+      {
+        duration: 0.9,
+      }
+    );
+  }, [map, focusTarget?.id, focusTarget?.lat, focusTarget?.lng]);
+
+  return null;
+}
+
 function HeatmapLayer({ points }) {
   const map = useMap();
 
@@ -130,9 +150,244 @@ function getHeatmapGlowStyle(severity) {
   }
 }
 
+function normalizeScore(value) {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(number, 1));
+}
+
+function formatPercent(value) {
+  const normalized = normalizeScore(value);
+
+  if (normalized === null) {
+    return "--";
+  }
+
+  return `${Math.round(normalized * 100)}%`;
+}
+
+function getPositiveScoreBarColor(value) {
+  const normalized = normalizeScore(value) || 0;
+
+  if (normalized >= 0.85) {
+    return "bg-emerald-500";
+  }
+
+  if (normalized >= 0.6) {
+    return "bg-amber-500";
+  }
+
+  return "bg-red-500";
+}
+
+function getRiskScoreBarColor(value) {
+  const normalized = normalizeScore(value) || 0;
+
+  if (normalized >= 0.65) {
+    return "bg-red-500";
+  }
+
+  if (normalized >= 0.35) {
+    return "bg-amber-500";
+  }
+
+  return "bg-emerald-500";
+}
+
+function getAiVerificationBadge(issue) {
+  const confidence = normalizeScore(issue?.aiConfidenceScore);
+  const fakeRisk = normalizeScore(issue?.fakeReportLikelihood);
+  const duplicateRisk = normalizeScore(issue?.duplicateLikelihood);
+
+  if (issue?.status === "REJECTED" || (fakeRisk !== null && fakeRisk >= 0.65)) {
+    return {
+      label: "High Risk",
+      className:
+        "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
+    };
+  }
+
+  if (duplicateRisk !== null && duplicateRisk >= 0.55) {
+    return {
+      label: "Possible Duplicate",
+      className:
+        "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
+    };
+  }
+
+  if (confidence !== null && confidence >= 0.75) {
+    return {
+      label: "AI Verified",
+      className:
+        "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
+    };
+  }
+
+  return {
+    label: "AI Pending",
+    className:
+      "border-slate-200 bg-slate-50 text-slate-600 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300",
+  };
+}
+
+function parseAiReasoning(reasoning) {
+  if (!reasoning) {
+    return [];
+  }
+
+  if (Array.isArray(reasoning)) {
+    return reasoning.map(String).map((item) => item.trim()).filter(Boolean);
+  }
+
+  const text = String(reasoning).trim();
+
+  if (!text) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+
+    if (Array.isArray(parsed)) {
+      return parsed.map(String).map((item) => item.trim()).filter(Boolean);
+    }
+  } catch {
+    // Backend currently may return Java List.toString(): [a, b, c]
+  }
+
+  return text
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
+    .split(/,(?=\s*[A-Z])/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function AiMetricBar({ label, value, colorClass, helper }) {
+  const normalized = normalizeScore(value);
+  const width = normalized === null ? 0 : normalized * 100;
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <div>
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+            {label}
+          </span>
+
+          {helper && (
+            <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+              {helper}
+            </p>
+          )}
+        </div>
+
+        <span className="shrink-0 text-xs font-semibold text-slate-800 dark:text-slate-100">
+          {formatPercent(value)}
+        </span>
+      </div>
+
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-[#1f1f1f]">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${colorClass}`}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 const LOCATION_PLACEHOLDER = "Selected from map";
 const AREA_LOADING = "Resolving area...";
 const AREA_UNAVAILABLE = "Pune area";
+const AI_PREVIEW_URL = "http://localhost:8000/analyze-preview";
+const MAX_UPLOAD_IMAGE_SIZE_BYTES = 1.5 * 1024 * 1024;
+const MAX_UPLOAD_IMAGE_DIMENSION = 1600;
+const IMAGE_UPLOAD_TIMEOUT_MS = 45000;
+const IMAGE_UPLOAD_RETRY_COUNT = 1;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getCompressedFileName(fileName) {
+  const safeName = fileName || "issue-image";
+  return safeName.replace(/\.[^.]+$/, "") + ".jpg";
+}
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const imageUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error("Could not read selected image"));
+    };
+
+    image.src = imageUrl;
+  });
+}
+
+async function prepareImageForUpload(file) {
+  if (!file || !file.type?.startsWith("image/")) {
+    return file;
+  }
+
+  const image = await loadImageFromFile(file);
+
+  const needsResize =
+    image.width > MAX_UPLOAD_IMAGE_DIMENSION ||
+    image.height > MAX_UPLOAD_IMAGE_DIMENSION;
+
+  const needsCompression = file.size > MAX_UPLOAD_IMAGE_SIZE_BYTES;
+
+  if (!needsResize && !needsCompression) {
+    return file;
+  }
+
+  const scale = Math.min(
+    1,
+    MAX_UPLOAD_IMAGE_DIMENSION / Math.max(image.width, image.height)
+  );
+
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return file;
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.82)
+  );
+
+  if (!blob) {
+    return file;
+  }
+
+  return new File([blob], getCompressedFileName(file.name), {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
 
 const categoryOptions = [
   { value: "POTHOLE", label: "Pothole" },
@@ -319,13 +574,14 @@ export default function Dashboard() {
     description: "",
     category: "POTHOLE",
     severity: "MEDIUM",
-    descriptionSource: "manual",
   });
 
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [descriptionMode, setDescriptionMode] = useState("handwritten");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isAiAutofilling, setIsAiAutofilling] = useState(false);
+  const [aiAutofillMessage, setAiAutofillMessage] = useState(null);
+  const [mapFocusTarget, setMapFocusTarget] = useState(null);
 
   const [darkMode, setDarkMode] = useState(
     localStorage.getItem("theme") === "dark"
@@ -372,6 +628,23 @@ export default function Dashboard() {
     queryKey: ["issue-detail", selectedIssueId],
     queryFn: fetchIssueDetail,
     enabled: drawerMode === "detail" && Boolean(selectedIssueId),
+    staleTime: 1000 * 30,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const possibleDuplicateIssueId = selectedIssue?.possibleDuplicateIssueId;
+
+  const {
+    data: possibleDuplicateIssue,
+    isFetching: isPossibleDuplicateFetching,
+  } = useQuery({
+    queryKey: ["issue-detail", possibleDuplicateIssueId],
+    queryFn: fetchIssueDetail,
+    enabled:
+      drawerMode === "detail" &&
+      Boolean(possibleDuplicateIssueId) &&
+      possibleDuplicateIssueId !== selectedIssueId,
     staleTime: 1000 * 30,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -426,6 +699,17 @@ export default function Dashboard() {
 
         if (event?.type === "ISSUE_UPDATED" && event?.status) {
           toast.message(`Issue status changed to ${event.status}`);
+        }
+
+        if (
+          event?.type === "ISSUE_UPDATED" &&
+          event?.issueId &&
+          selectedIssueIdRef.current === event.issueId
+        ) {
+          toast.message("Duplicate analysis refreshed", {
+            description:
+              "AI-enhanced duplicate detection was recomputed after image analysis.",
+          });
         }
 
         // ================= TANSTACK QUERY INVALIDATION =================
@@ -526,10 +810,6 @@ export default function Dashboard() {
     return getApproxPuneArea(issue.latitude, issue.longitude);
   };
 
-  useEffect(() => {
-    if (!selectedIssueId) return;
-    setDescriptionMode("handwritten");
-  }, [selectedIssueId]);
 
   const handleMapMove = (lat, lng) => {
     setCenter((previous) => {
@@ -555,10 +835,12 @@ export default function Dashboard() {
       description: "",
       category: "POTHOLE",
       severity: "MEDIUM",
-      descriptionSource: "manual",
     });
     setImageFile(null);
     setIsSubmitting(false);
+    setIsUploadingImage(false);
+    setIsAiAutofilling(false);
+    setAiAutofillMessage(null);
   };
 
   const openCreateForm = (location) => {
@@ -575,17 +857,63 @@ export default function Dashboard() {
     resetCreateForm();
   };
 
-  const openIssueDetail = (issueId) => {
+  const openIssueDetail = (issueId, options = {}) => {
     setDrawerMode("detail");
     setSelectedIssueId(issueId);
     setSelectedLocation(null);
     setImageFile(null);
     setIsSubmitting(false);
+    setIsUploadingImage(false);
+    setIsAiAutofilling(false);
+    setAiAutofillMessage(null);
+
+    const focusIssue = options.focusIssue;
+
+    if (focusIssue?.latitude != null && focusIssue?.longitude != null) {
+      setMapFocusTarget({
+        id: focusIssue.id || issueId,
+        lat: Number(focusIssue.latitude),
+        lng: Number(focusIssue.longitude),
+      });
+    }
   };
 
   const closeIssueDetail = () => {
     setDrawerMode("empty");
     setSelectedIssueId(null);
+  };
+
+  const handleOpenMatchedIssue = async (matchedIssue) => {
+    const matchedIssueId =
+      matchedIssue?.id || selectedIssue?.possibleDuplicateIssueId;
+
+    if (!matchedIssueId) return;
+
+    try {
+      let issueToOpen = matchedIssue;
+
+      if (!issueToOpen?.latitude || !issueToOpen?.longitude) {
+        const response = await API.get(`/api/issues/${matchedIssueId}`);
+        issueToOpen = response.data;
+
+        queryClient.setQueryData(
+          ["issue-detail", matchedIssueId],
+          issueToOpen
+        );
+      }
+
+      openIssueDetail(matchedIssueId, {
+        focusIssue: issueToOpen,
+      });
+
+      toast.message("Opened matched issue", {
+        description:
+          "Map focus moved from the duplicate report to the original matched report.",
+      });
+    } catch (error) {
+      console.error("Failed to open matched issue", error);
+      toast.error("Failed to open matched issue");
+    }
   };
 
   const resetFilters = () => {
@@ -598,6 +926,106 @@ export default function Dashboard() {
     await refetch();
   };
 
+  const handleAiImageUpload = async (file) => {
+    if (!file) return;
+
+    setIsAiAutofilling(true);
+    setAiAutofillMessage(null);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    try {
+      const preparedFile = await prepareImageForUpload(file);
+
+      setImageFile(preparedFile);
+
+      const formData = new FormData();
+      formData.append("file", preparedFile);
+
+      const response = await fetch(AI_PREVIEW_URL, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI preview request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      setForm((previous) => ({
+        ...previous,
+        title: previous.title?.trim() ? previous.title : data.title || previous.title,
+        category: data.category || previous.category,
+        severity: data.severity || previous.severity,
+        description: previous.description?.trim()
+          ? previous.description
+          : data.description || previous.description,
+      }));
+
+      setAiAutofillMessage(
+        "AI suggestions were applied. Review and edit them before submitting."
+      );
+
+      toast.success("AI autofill completed", {
+        description:
+          "Title, category, severity, and description were suggested automatically.",
+      });
+    } catch (error) {
+      const isAbort = error?.name === "AbortError";
+      const message = isAbort
+        ? "AI autofill took too long. The image is still attached, so you can complete the report manually."
+        : "AI service is offline or unreachable. The image is still attached, so fill the report manually and submit.";
+
+      console.warn("AI autofill unavailable", error);
+
+      setImageFile(file);
+      setAiAutofillMessage(message);
+
+      toast.warning("AI autofill unavailable", {
+        description: message,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+      setIsAiAutofilling(false);
+    }
+  };
+
+  const uploadIssueImageWithRetry = async (issueId, file) => {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= IMAGE_UPLOAD_RETRY_COUNT; attempt += 1) {
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+
+      try {
+        await API.post(`/api/issues/${issueId}/upload`, uploadData, {
+          timeout: IMAGE_UPLOAD_TIMEOUT_MS,
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+
+        return;
+      } catch (error) {
+        lastError = error;
+        console.error(`Image upload attempt ${attempt} failed`, error);
+
+        if (attempt < IMAGE_UPLOAD_RETRY_COUNT) {
+          await wait(1200 * attempt);
+        }
+      }
+    }
+
+    throw lastError;
+  };
+
   const handleCreateIssue = async () => {
     if (!selectedLocation) return;
 
@@ -606,13 +1034,8 @@ export default function Dashboard() {
       return;
     }
 
-    if (form.descriptionSource === "manual" && !form.description.trim()) {
-      alert("Please enter a description or choose AI-generated description");
-      return;
-    }
-
-    if (form.descriptionSource === "ai" && !imageFile) {
-      alert("Please upload an image to use AI-generated description");
+    if (!form.description.trim()) {
+      alert("Please enter a description");
       return;
     }
 
@@ -621,10 +1044,7 @@ export default function Dashboard() {
     try {
       const issueRes = await API.post("/api/issues", {
         title: form.title,
-        description:
-          form.descriptionSource === "manual"
-            ? form.description
-            : "AI-generated description requested from uploaded image.",
+        description: form.description,
         category: form.category,
         severity: form.severity,
         latitude: selectedLocation.lat,
@@ -635,23 +1055,23 @@ export default function Dashboard() {
       const issueId = issueRes.data?.id;
 
       if (imageFile && issueId) {
-        const uploadData = new FormData();
-        uploadData.append("file", imageFile);
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        setIsUploadingImage(true);
 
         try {
-          await API.post(`/api/issues/${issueId}/upload`, uploadData, {
-            signal: controller.signal,
+          await uploadIssueImageWithRetry(issueId, imageFile);
+
+          toast.success("Image uploaded", {
+            description: "The report image was attached successfully.",
           });
         } catch (uploadErr) {
-          console.error("Image upload failed or timed out", uploadErr);
-          alert(
-            "Issue was created, but image upload failed or took too long. The issue will still appear on the map."
-          );
+          console.error("Image upload failed", uploadErr);
+
+          toast.error("Issue created, but image upload failed", {
+            description:
+              "The issue will still appear on the map. If this repeats, check backend logs for /upload because the backend is resetting the connection.",
+          });
         } finally {
-          clearTimeout(timeoutId);
+          setIsUploadingImage(false);
         }
       }
 
@@ -686,39 +1106,10 @@ export default function Dashboard() {
   const renderDescriptionContent = () => {
     if (!selectedIssue) return null;
 
-    if (descriptionMode === "ai") {
-      return (
-        <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/70 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-              AI
-            </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Generated from uploaded image
-            </span>
-          </div>
-
-          <p className="text-sm leading-6 text-slate-700 dark:text-slate-300">
-            {selectedIssue.aiDescription ||
-              "AI-generated description is not available yet. The image may still be processing."}
-          </p>
-        </div>
-      );
-    }
-
     return (
       <div className="mt-3 rounded-md border border-slate-200 bg-white p-3 dark:border-[#333333] dark:bg-[#151515]">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white dark:bg-slate-100 dark:text-slate-900">
-            Handwritten
-          </span>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Added by reporter while creating the issue
-          </span>
-        </div>
-
         <p className="text-sm leading-6 text-slate-700 dark:text-slate-300">
-          {selectedIssue.description || "No handwritten description provided."}
+          {selectedIssue.description || "No description provided."}
         </p>
       </div>
     );
@@ -858,7 +1249,7 @@ export default function Dashboard() {
                       <button
                         key={issue.id}
                         type="button"
-                        onClick={() => openIssueDetail(issue.id)}
+                        onClick={() => openIssueDetail(issue.id, { focusIssue: issue })}
                         className={`w-full rounded-md border p-3 text-left transition-colors ${
                           selectedIssueId === issue.id
                             ? "border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-[#222222]"
@@ -986,6 +1377,8 @@ export default function Dashboard() {
 
                 <MapClickHandler onMapClick={openCreateForm} />
 
+                <MapFocusController focusTarget={mapFocusTarget} />
+
                 {showHeatmap && heatmapPoints.length > 0 && (
                   <HeatmapLayer points={heatmapPoints} />
                 )}
@@ -1037,7 +1430,9 @@ export default function Dashboard() {
                         Number(issue.latitude),
                         Number(issue.longitude),
                       ]}
-                      eventHandlers={{ click: () => openIssueDetail(issue.id) }}
+                      eventHandlers={{
+                        click: () => openIssueDetail(issue.id, { focusIssue: issue }),
+                      }}
                     >
                       <Popup autoPan={false} closeOnClick={false}>
                         <div className="min-w-[250px] overflow-hidden rounded-xl bg-white p-1 dark:bg-[#111111]">
@@ -1148,9 +1543,15 @@ export default function Dashboard() {
                         type="button"
                         className="h-9 w-full"
                         onClick={handleCreateIssue}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || isUploadingImage || isAiAutofilling}
                       >
-                        {isSubmitting ? "Submitting..." : "Submit issue"}
+                        {isUploadingImage
+                          ? "Uploading image..."
+                          : isSubmitting
+                          ? "Submitting..."
+                          : isAiAutofilling
+                          ? "Analyzing image..."
+                          : "Submit issue"}
                       </Button>
                     </div>
                   </div>
@@ -1176,68 +1577,37 @@ export default function Dashboard() {
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <label className={fieldLabelClass}>Description</label>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <label htmlFor="description" className={fieldLabelClass}>
+                            Description
+                          </label>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setForm((previous) => ({
-                                ...previous,
-                                descriptionSource: "manual",
-                              }))
-                            }
-                            className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                              form.descriptionSource === "manual"
-                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300 dark:hover:bg-[#1d1d1d]"
-                            }`}
-                          >
-                            Write manually
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setForm((previous) => ({
-                                ...previous,
-                                descriptionSource: "ai",
-                                description: "",
-                              }))
-                            }
-                            className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                              form.descriptionSource === "ai"
-                                ? "border-blue-600 bg-blue-600 text-white"
-                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300 dark:hover:bg-[#1d1d1d]"
-                            }`}
-                          >
-                            Use AI-generated
-                          </button>
+                          {imageFile && !isAiAutofilling && (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                              AI suggested · editable
+                            </span>
+                          )}
                         </div>
 
-                        {form.descriptionSource === "manual" ? (
-                          <textarea
-                            id="description"
-                            name="description"
-                            rows={3}
-                            placeholder="Add a short description"
-                            value={form.description}
-                            onChange={(e) =>
-                              setForm((previous) => ({
-                                ...previous,
-                                description: e.target.value,
-                              }))
-                            }
-                            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-300 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-500 dark:focus:ring-[#333333]"
-                          />
-                        ) : (
-                          <div className="rounded-md border border-blue-100 bg-blue-50/70 p-3 text-sm leading-6 text-slate-700 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-slate-300">
-                            Upload an image and CivicSense AI will generate the
-                            issue description after submission. You can inspect it
-                            in the AI tab of the issue details panel.
-                          </div>
-                        )}
+                        <textarea
+                          id="description"
+                          name="description"
+                          rows={4}
+                          placeholder="Upload an image to let AI suggest a description, or write the details manually."
+                          value={form.description}
+                          onChange={(e) =>
+                            setForm((previous) => ({
+                              ...previous,
+                              description: e.target.value,
+                            }))
+                          }
+                          className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-300 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-500 dark:focus:ring-[#333333]"
+                        />
+
+                        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                          AI autofill can suggest this from the uploaded image. You can edit it before submitting.
+                        </p>
                       </div>
 
                       <div className="space-y-1.5">
@@ -1290,12 +1660,7 @@ export default function Dashboard() {
 
                       <div className="space-y-1.5">
                         <label htmlFor="issueImage" className={fieldLabelClass}>
-                          Image{" "}
-                          {form.descriptionSource === "ai" && (
-                            <span className="text-xs text-blue-500">
-                              required for AI description
-                            </span>
-                          )}
+                          Image
                         </label>
 
                         <input
@@ -1305,15 +1670,52 @@ export default function Dashboard() {
                           accept="image/*"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
-                            setImageFile(file || null);
+
+                            if (!file) {
+                              setImageFile(null);
+                              return;
+                            }
+
+                            handleAiImageUpload(file);
                           }}
-                          className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:file:bg-[#222222] dark:file:text-slate-200 dark:hover:file:bg-[#2a2a2a]"
+                          disabled={isAiAutofilling || isSubmitting}
+                          className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:file:bg-[#222222] dark:file:text-slate-200 dark:hover:file:bg-[#2a2a2a]"
                         />
 
                         {imageFile && (
                           <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                             Selected: {imageFile.name}
                           </p>
+                        )}
+
+                        {isAiAutofilling && (
+                          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                            AI is analyzing the uploaded image and generating title, category, severity, and description suggestions...
+                          </div>
+                        )}
+
+                        {isUploadingImage && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                            Uploading image and starting AI verification.
+                          </div>
+                        )}
+
+                        {!isAiAutofilling && imageFile && aiAutofillMessage && (
+                          <div
+                            className={`rounded-md border px-3 py-2 text-xs leading-5 ${
+                              aiAutofillMessage.startsWith("AI suggestions")
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+                                : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+                            }`}
+                          >
+                            {aiAutofillMessage}
+                          </div>
+                        )}
+
+                        {!isAiAutofilling && imageFile && !aiAutofillMessage && (
+                          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 dark:border-[#2a2a2a] dark:bg-[#101010] dark:text-slate-300">
+                            Image attached. AI suggestions are optional; you can complete the report manually.
+                          </div>
                         )}
                       </div>
 
@@ -1323,11 +1725,10 @@ export default function Dashboard() {
                             severityDotStyles[form.severity]
                           }`}
                         />
-                        {severityLabels[form.severity]} severity report
-                        {imageFile ? " with image" : ""}
-                        {form.descriptionSource === "ai"
-                          ? " using AI-generated description"
-                          : ""}
+                        {isAiAutofilling
+                          ? "AI is preparing report suggestions"
+                          : `${severityLabels[form.severity]} severity report`}
+                        {!isAiAutofilling && imageFile ? " with image" : ""}
                       </div>
                     </div>
                   </div>
@@ -1444,40 +1845,84 @@ export default function Dashboard() {
                         </div>
 
                         <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                              Description
-                            </h3>
-
-                            <div className="flex rounded-md border border-slate-200 bg-white p-0.5 dark:border-[#333333] dark:bg-[#151515]">
-                              <button
-                                type="button"
-                                onClick={() => setDescriptionMode("handwritten")}
-                                className={`rounded px-2 py-1 text-[11px] font-medium ${
-                                  descriptionMode === "handwritten"
-                                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                                    : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-                                }`}
-                              >
-                                Handwritten
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setDescriptionMode("ai")}
-                                className={`rounded px-2 py-1 text-[11px] font-medium ${
-                                  descriptionMode === "ai"
-                                    ? "bg-blue-600 text-white"
-                                    : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-                                }`}
-                              >
-                                AI
-                              </button>
-                            </div>
-                          </div>
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Description
+                          </h3>
 
                           {renderDescriptionContent()}
                         </section>
+
+                        {(selectedIssue.possibleDuplicateIssueId ||
+                          (normalizeScore(selectedIssue.duplicateLikelihood) !== null &&
+                            normalizeScore(selectedIssue.duplicateLikelihood) >= 0.55)) && (
+                          <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm dark:border-amber-900/70 dark:bg-amber-950/20">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                                  Possible duplicate detected
+                                </h3>
+
+                                <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                                  CivicSense rechecks this report after image AI processing using the AI description, raw caption, CLIP label, semantic similarity, distance, and time proximity.
+                                </p>
+                              </div>
+
+                              <span className="shrink-0 rounded-full border border-amber-300 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                                {formatPercent(selectedIssue.duplicateLikelihood)} match
+                              </span>
+                            </div>
+
+                            {selectedIssue.possibleDuplicateIssueId && (
+                              <div className="mt-4 rounded-xl border border-amber-200 bg-white/85 p-3 dark:border-amber-900/60 dark:bg-[#111111]/70">
+                                {isPossibleDuplicateFetching ? (
+                                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                                    Loading matched issue preview...
+                                  </p>
+                                ) : possibleDuplicateIssue ? (
+                                  <div className="space-y-3">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                          {possibleDuplicateIssue.title}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                          {getDisplayArea(possibleDuplicateIssue)} · {formatDate(possibleDuplicateIssue.createdAt)}
+                                        </p>
+                                      </div>
+
+                                      <span
+                                        className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                                          severityStyles[possibleDuplicateIssue.severity] ||
+                                          "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-200"
+                                        }`}
+                                      >
+                                        {severityLabels[possibleDuplicateIssue.severity] ||
+                                          possibleDuplicateIssue.severity}
+                                      </span>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenMatchedIssue(possibleDuplicateIssue)}
+                                      className="rounded-md border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
+                                    >
+                                      Open matched issue
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                                      Matched issue ID:
+                                    </p>
+                                    <p className="break-all rounded-md bg-amber-100 px-2 py-1 text-[11px] font-mono text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                                      {selectedIssue.possibleDuplicateIssueId}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </section>
+                        )}
 
                         <section className="grid grid-cols-2 gap-2">
                           <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
@@ -1509,6 +1954,134 @@ export default function Dashboard() {
                           </div>
                         </section>
 
+                        <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-[#262626] dark:bg-[#111111]/80">
+                          {(() => {
+                            const badge = getAiVerificationBadge(selectedIssue);
+                            const reasoningItems = parseAiReasoning(
+                              selectedIssue.aiReasoning
+                            );
+
+                            const hasAiSignals =
+                              selectedIssue.aiConfidenceScore !== null ||
+                              selectedIssue.fakeReportLikelihood !== null ||
+                              selectedIssue.severityConfidence !== null ||
+                              selectedIssue.duplicateLikelihood !== null ||
+                              reasoningItems.length > 0;
+
+                            return (
+                              <>
+                                <div className="mb-4 flex items-start justify-between gap-3">
+                                  <div>
+                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                      AI Intelligence
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                      Automated civic verification insights
+                                    </p>
+                                  </div>
+
+                                  <span
+                                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${badge.className}`}
+                                  >
+                                    {badge.label}
+                                  </span>
+                                </div>
+
+                                {hasAiSignals ? (
+                                  <>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-[#242424] dark:bg-[#151515]">
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                          Confidence
+                                        </p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                          {formatPercent(selectedIssue.aiConfidenceScore)}
+                                        </p>
+                                      </div>
+
+                                      <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-[#242424] dark:bg-[#151515]">
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                          Fake Risk
+                                        </p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                                          {formatPercent(selectedIssue.fakeReportLikelihood)}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-4 space-y-4">
+                                      <AiMetricBar
+                                        label="Confidence Score"
+                                        helper="How strongly the AI believes this is a civic issue"
+                                        value={selectedIssue.aiConfidenceScore}
+                                        colorClass={getPositiveScoreBarColor(
+                                          selectedIssue.aiConfidenceScore
+                                        )}
+                                      />
+
+                                      <AiMetricBar
+                                        label="Fake Report Risk"
+                                        helper="Likelihood that the image does not match a valid civic report"
+                                        value={selectedIssue.fakeReportLikelihood}
+                                        colorClass={getRiskScoreBarColor(
+                                          selectedIssue.fakeReportLikelihood
+                                        )}
+                                      />
+
+                                      <AiMetricBar
+                                        label="Severity Certainty"
+                                        helper="Confidence behind the suggested severity level"
+                                        value={selectedIssue.severityConfidence}
+                                        colorClass={getPositiveScoreBarColor(
+                                          selectedIssue.severityConfidence
+                                        )}
+                                      />
+
+                                      <AiMetricBar
+                                        label="Duplicate Likelihood"
+                                        helper="Semantic similarity weighted with geo distance and report timing"
+                                        value={selectedIssue.duplicateLikelihood}
+                                        colorClass={getRiskScoreBarColor(
+                                          selectedIssue.duplicateLikelihood
+                                        )}
+                                      />
+                                    </div>
+
+                                    {reasoningItems.length > 0 && (
+                                      <div className="mt-5 border-t border-slate-100 pt-4 dark:border-[#1f1f1f]">
+                                        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                          AI Reasoning
+                                        </div>
+
+                                        <div className="space-y-2">
+                                          {reasoningItems.map((reason, index) => (
+                                            <div
+                                              key={`${reason}-${index}`}
+                                              className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs text-slate-700 dark:border-[#1f1f1f] dark:bg-[#151515] dark:text-slate-300"
+                                            >
+                                              <span className="mt-0.5 text-emerald-500">
+                                                ✓
+                                              </span>
+
+                                              <span>{reason}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-500 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-400">
+                                    AI intelligence signals are not available yet.
+                                    They will appear once image analysis completes.
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </section>
+
                         <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
                           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Metadata
@@ -1523,6 +2096,21 @@ export default function Dashboard() {
                                 {getDisplayArea(selectedIssue)}
                               </span>
                             </div>
+
+                            {selectedIssue.possibleDuplicateIssueId && (
+                              <div className="flex justify-between gap-3">
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  Possible duplicate
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenMatchedIssue(possibleDuplicateIssue || { id: selectedIssue.possibleDuplicateIssueId })}
+                                  className="max-w-[190px] truncate text-right text-amber-700 hover:underline dark:text-amber-300"
+                                >
+                                  {selectedIssue.possibleDuplicateIssueId}
+                                </button>
+                              </div>
+                            )}
 
                             <div className="flex justify-between gap-3">
                               <span className="text-slate-500 dark:text-slate-400">

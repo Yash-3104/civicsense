@@ -21,6 +21,7 @@ public class IssueImageUploadedConsumer {
 
     private final AiServiceClient aiServiceClient;
     private final IssueRepository issueRepository;
+    private final IssueService issueService;
     private final RealtimeEventService realtimeEventService;
 
     @KafkaListener(
@@ -60,18 +61,44 @@ public class IssueImageUploadedConsumer {
                     (String) result.get("description");
 
             String rawCaption =
-                    (String) result.get("raw_caption");
+                    getStringValue(result, "raw_caption");
+
+            if (rawCaption == null) {
+                rawCaption = getStringValue(result, "caption");
+            }
+
+            String clipLabel = getClipLabel(result);
+
+            Double aiConfidenceScore =
+                    getDoubleValue(result, "confidence_score");
+
+            Double fakeReportLikelihood =
+                    getDoubleValue(result, "fake_report_likelihood");
+
+            Double severityConfidence =
+                    getDoubleValue(result, "severity_confidence");
+
+            String aiReasoning =
+                    getReasoningText(result);
 
             System.out.println("AI valid issue: " + isValid);
             System.out.println("AI severity: " + severity);
             System.out.println("AI description: " + aiDescription);
             System.out.println("AI raw caption: " + rawCaption);
+            System.out.println("AI CLIP label: " + clipLabel);
 
             if (aiDescription == null || aiDescription.isBlank()) {
                 aiDescription = "AI analysis completed successfully.";
             }
 
             issue.setAiDescription(aiDescription);
+            issue.setAiRawCaption(rawCaption);
+            issue.setAiClipLabel(clipLabel);
+
+            issue.setAiConfidenceScore(aiConfidenceScore);
+            issue.setFakeReportLikelihood(fakeReportLikelihood);
+            issue.setSeverityConfidence(severityConfidence);
+            issue.setAiReasoning(aiReasoning);
 
             if (Boolean.FALSE.equals(isValid)) {
 
@@ -90,14 +117,33 @@ public class IssueImageUploadedConsumer {
 
             Issue savedIssue = issueRepository.save(issue);
 
+            // Duplicate Detection v2: rerun after AI metadata is saved.
+            Issue duplicateRefinedIssue =
+                    issueService.recomputeDuplicateLikelihood(savedIssue.getId());
+
             realtimeEventService.publishIssueEvent(
                     RealtimeEventType.AI_ANALYSIS_COMPLETED,
-                    savedIssue
+                    duplicateRefinedIssue
             );
 
             System.out.println(
                     "SAVED AI DESCRIPTION: " +
-                            savedIssue.getAiDescription()
+                            duplicateRefinedIssue.getAiDescription()
+            );
+
+            System.out.println(
+                    "AI CONFIDENCE SCORE: " +
+                            duplicateRefinedIssue.getAiConfidenceScore()
+            );
+
+            System.out.println(
+                    "DUPLICATE LIKELIHOOD AFTER AI: " +
+                            duplicateRefinedIssue.getDuplicateLikelihood()
+            );
+
+            System.out.println(
+                    "POSSIBLE DUPLICATE ISSUE ID AFTER AI: " +
+                            duplicateRefinedIssue.getPossibleDuplicateIssueId()
             );
 
             System.out.println("Kafka AI processing completed for issue: " + event.getIssueId());
@@ -111,5 +157,92 @@ public class IssueImageUploadedConsumer {
             e.printStackTrace();
             System.out.println();
         }
+    }
+
+    private Double getDoubleValue(Map<String, Object> result, String key) {
+
+        Object value = result.get(key);
+
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+
+        try {
+            return Double.parseDouble(value.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String getStringValue(Map<String, Object> result, String key) {
+
+        Object value = result.get(key);
+
+        if (value == null) {
+            return null;
+        }
+
+        String text = value.toString();
+
+        if (text.isBlank()) {
+            return null;
+        }
+
+        return text;
+    }
+
+    private String getClipLabel(Map<String, Object> result) {
+
+        String directLabel = getStringValue(result, "clip_label");
+
+        if (directLabel != null) {
+            return directLabel;
+        }
+
+        String topLabel = getStringValue(result, "top_label");
+
+        if (topLabel != null) {
+            return topLabel;
+        }
+
+        Object classification = result.get("classification");
+
+        if (classification instanceof Map<?, ?> map) {
+            Object nestedTopLabel = map.get("top_label");
+
+            if (nestedTopLabel != null && !nestedTopLabel.toString().isBlank()) {
+                return nestedTopLabel.toString();
+            }
+
+            Object label = map.get("label");
+
+            if (label != null && !label.toString().isBlank()) {
+                return label.toString();
+            }
+        }
+
+        return null;
+    }
+
+    private String getReasoningText(Map<String, Object> result) {
+
+        Object value = result.get("reasoning");
+
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof java.util.List<?> list) {
+            return list.stream()
+                    .map(Object::toString)
+                    .toList()
+                    .toString();
+        }
+
+        return value.toString();
     }
 }
