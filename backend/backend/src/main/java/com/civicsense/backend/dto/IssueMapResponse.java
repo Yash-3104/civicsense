@@ -3,6 +3,7 @@ package com.civicsense.backend.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
@@ -26,4 +27,7 @@ public class IssueMapResponse {
     private Double fakeReportLikelihood;
     private Double duplicateLikelihood;
     private UUID possibleDuplicateIssueId;
+    private String resolutionImageUrl;
+
+    private LocalDateTime resolvedAt;
 }

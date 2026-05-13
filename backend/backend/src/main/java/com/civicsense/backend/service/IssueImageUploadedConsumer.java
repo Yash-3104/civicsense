@@ -4,7 +4,6 @@ import com.civicsense.backend.dto.IssueImageUploadedEvent;
 import com.civicsense.backend.dto.RealtimeEventType;
 import com.civicsense.backend.entity.Issue;
 import com.civicsense.backend.entity.IssueStatus;
-import com.civicsense.backend.entity.SeverityLevel;
 import com.civicsense.backend.repository.IssueRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -108,9 +107,13 @@ public class IssueImageUploadedConsumer {
 
                 issue.setStatus(IssueStatus.VERIFIED);
 
-                if (severity != null && !severity.isBlank()) {
-                    issue.setSeverity(SeverityLevel.valueOf(severity));
-                }
+                // Do NOT overwrite the citizen/admin selected severity here.
+                // AI severity is stored as confidence metadata and used for suggestions,
+                // but the final issue severity remains the user-selected operational value.
+                System.out.println(
+                        "AI suggested severity ignored for final issue severity: " +
+                                severity
+                );
             }
 
             issue.setUpdatedAt(LocalDateTime.now());

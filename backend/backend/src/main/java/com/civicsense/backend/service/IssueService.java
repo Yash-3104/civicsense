@@ -26,8 +26,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -74,7 +76,6 @@ public class IssueService {
 
         Issue saved = issueRepository.save(issue);
 
-        // v1 duplicate check: uses title + user/autofilled description + category + geo/time.
         saved = enrichDuplicateLikelihood(saved);
 
         realtimeEventService.publishIssueEvent(
@@ -83,6 +84,72 @@ public class IssueService {
         );
 
         return mapToDetailedResponse(saved);
+    }
+
+    @Transactional
+    public Issue updateIssueStatus(UUID issueId, IssueStatus status) {
+
+        Issue issue = issueRepository.findById(issueId)
+                .orElseThrow(() -> new RuntimeException("Issue not found"));
+
+        issue.setStatus(status);
+        issue.setUpdatedAt(LocalDateTime.now());
+
+        Issue savedIssue = issueRepository.save(issue);
+
+        realtimeEventService.publishIssueEvent(
+                RealtimeEventType.ISSUE_UPDATED,
+                savedIssue
+        );
+
+        return savedIssue;
+    }
+
+    @Transactional
+    public Issue resolveIssue(
+            UUID issueId,
+            String resolutionNotes,
+            MultipartFile image
+    ) {
+
+        Issue issue = issueRepository.findById(issueId)
+                .orElseThrow(() -> new RuntimeException("Issue not found"));
+
+        issue.setStatus(IssueStatus.RESOLVED);
+        issue.setResolutionNotes(resolutionNotes);
+        issue.setResolvedAt(LocalDateTime.now());
+
+        if (image != null && !image.isEmpty()) {
+
+            try {
+
+                Path savedPath = fileStorageService.storeFile(image);
+
+                String imageUrl =
+                        buildImageUrl(savedPath.getFileName().toString());
+
+                issue.setResolutionImageUrl(imageUrl);
+
+            } catch (Exception e) {
+
+                e.printStackTrace();
+
+                throw new RuntimeException(
+                        "Resolution image upload failed"
+                );
+            }
+        }
+
+        issue.setUpdatedAt(LocalDateTime.now());
+
+        Issue savedIssue = issueRepository.save(issue);
+
+        realtimeEventService.publishIssueEvent(
+                RealtimeEventType.ISSUE_RESOLVED,
+                savedIssue
+        );
+
+        return savedIssue;
     }
 
     /**
@@ -121,9 +188,11 @@ public class IssueService {
             int size
     ) {
 
+        int safeSize = Math.max(1, Math.min(size, 100));
+
         Pageable pageable = PageRequest.of(
                 page,
-                size,
+                safeSize,
                 Sort.by("createdAt").descending()
         );
 
@@ -147,6 +216,8 @@ public class IssueService {
                         .fakeReportLikelihood(issue.getFakeReportLikelihood())
                         .duplicateLikelihood(issue.getDuplicateLikelihood())
                         .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
+                        .resolutionImageUrl(issue.getResolutionImageUrl())
+                        .resolvedAt(issue.getResolvedAt())
                         .build()
                 )
                 .toList();
@@ -191,6 +262,8 @@ public class IssueService {
                         .fakeReportLikelihood(issue.getFakeReportLikelihood())
                         .duplicateLikelihood(issue.getDuplicateLikelihood())
                         .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
+                        .resolutionImageUrl(issue.getResolutionImageUrl())
+                        .resolvedAt(issue.getResolvedAt())
                         .build()
                 )
                 .toList();
@@ -204,7 +277,7 @@ public class IssueService {
         Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new RuntimeException("Issue not found"));
 
-        java.nio.file.Path savedPath = fileStorageService.storeFile(file);
+        Path savedPath = fileStorageService.storeFile(file);
 
         String fileName = savedPath.getFileName().toString();
         String fullPath = savedPath.toString();
@@ -246,9 +319,9 @@ public class IssueService {
                     .filter(issue -> issue.getCategory() == sourceIssue.getCategory())
                     .filter(issue ->
                             issue.getCreatedAt() != null &&
-                            issue.getCreatedAt().isAfter(
-                                    LocalDateTime.now().minusDays(7)
-                            )
+                                    issue.getCreatedAt().isAfter(
+                                            LocalDateTime.now().minusDays(7)
+                                    )
                     )
                     .toList();
 
@@ -303,8 +376,8 @@ public class IssueService {
 
                 duplicateLikelihood = clamp(
                         (bestSemanticScore * 0.5) +
-                        (geoScore * 0.35) +
-                        (timeScore * 0.15)
+                                (geoScore * 0.35) +
+                                (timeScore * 0.15)
                 );
 
                 if (duplicateLikelihood >= DUPLICATE_WARNING_THRESHOLD) {
@@ -330,7 +403,7 @@ public class IssueService {
 
             System.out.println(
                     "Duplicate semantic check failed, using fallback: " +
-                    e.getMessage()
+                            e.getMessage()
             );
 
             DuplicateFallbackResult fallback =
@@ -388,8 +461,8 @@ public class IssueService {
 
                 double combined =
                         (geoScore * 0.45) +
-                        (timeScore * 0.25) +
-                        (categoryScore * 0.30);
+                                (timeScore * 0.25) +
+                                (categoryScore * 0.30);
 
                 if (combined > bestScore) {
                     bestScore = combined;
@@ -494,10 +567,10 @@ public class IssueService {
 
         double a =
                 Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(lat1)) *
-                Math.cos(Math.toRadians(lat2)) *
-                Math.sin(dLng / 2) *
-                Math.sin(dLng / 2);
+                        Math.cos(Math.toRadians(lat1)) *
+                                Math.cos(Math.toRadians(lat2)) *
+                                Math.sin(dLng / 2) *
+                                Math.sin(dLng / 2);
 
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -520,7 +593,7 @@ public class IssueService {
 
         if (
                 mediaUrl.startsWith("http://") ||
-                mediaUrl.startsWith("https://")
+                        mediaUrl.startsWith("https://")
         ) {
             return mediaUrl;
         }
@@ -532,7 +605,7 @@ public class IssueService {
 
         if (
                 issue.getMedia() == null ||
-                issue.getMedia().isEmpty()
+                        issue.getMedia().isEmpty()
         ) {
             return List.of();
         }
@@ -573,17 +646,17 @@ public class IssueService {
                         issue.getReportedBy() == null
                                 ? null
                                 : UserSummary.builder()
-                                        .id(issue.getReportedBy().getId())
-                                        .name(issue.getReportedBy().getName())
-                                        .build()
+                                .id(issue.getReportedBy().getId())
+                                .name(issue.getReportedBy().getName())
+                                .build()
                 )
                 .assignedTo(
                         issue.getAssignedTo() == null
                                 ? null
                                 : UserSummary.builder()
-                                        .id(issue.getAssignedTo().getId())
-                                        .name(issue.getAssignedTo().getName())
-                                        .build()
+                                .id(issue.getAssignedTo().getId())
+                                .name(issue.getAssignedTo().getName())
+                                .build()
                 )
                 .createdAt(issue.getCreatedAt())
                 .updatedAt(issue.getUpdatedAt())
@@ -596,6 +669,9 @@ public class IssueService {
                 .duplicateLikelihood(issue.getDuplicateLikelihood())
                 .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
                 .aiReasoning(issue.getAiReasoning())
+                .resolutionNotes(issue.getResolutionNotes())
+                .resolutionImageUrl(issue.getResolutionImageUrl())
+                .resolvedAt(issue.getResolvedAt())
                 .build();
     }
 }

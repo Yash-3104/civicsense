@@ -19,14 +19,14 @@ from models.reasoning import (
 def build_analysis_payload(image) -> dict:
     caption = generate_caption(image)
 
-    classification = classify_image(image)
+    classification = classify_image(image, caption)
 
     top_label = classification["top_label"]
     top_score = classification["top_score"]
 
     category = map_label_to_category(top_label)
 
-    valid_issue = not is_non_civic_label(top_label) and top_score >= 0.16
+    valid_issue = bool(classification.get("valid_issue"))
 
     severity = estimate_severity(
         caption=caption,
@@ -108,6 +108,8 @@ def build_analysis_payload(image) -> dict:
         "duplicate_likelihood": duplicate_likelihood,
         "reasoning": reasoning,
         "classification": classification,
+        "clip_label": top_label,
+        "top_label": top_label,
     }
 
 
@@ -125,6 +127,8 @@ def analyze_image(image) -> dict:
         "reasoning": payload["reasoning"],
         "raw_caption": payload["raw_caption"],
         "classification": payload["classification"],
+        "clip_label": payload["clip_label"],
+        "top_label": payload["top_label"],
     }
 
 
@@ -144,4 +148,6 @@ def analyze_preview_image(image) -> dict:
         "duplicate_likelihood": payload["duplicate_likelihood"],
         "reasoning": payload["reasoning"],
         "classification": payload["classification"],
+        "clip_label": payload["clip_label"],
+        "top_label": payload["top_label"],
     }

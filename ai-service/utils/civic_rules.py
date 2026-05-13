@@ -1,28 +1,40 @@
 CANDIDATE_LABELS = [
+    # civic labels
     "pothole",
-    "water leak",
-    "garbage dump",
-    "streetlight failure",
     "road damage",
-    "construction hazard",
-    "traffic obstruction",
+    "water leak",
     "sewage overflow",
     "blocked drain",
+    "garbage dump",
+    "streetlight failure",
+    "construction hazard",
+    "traffic obstruction",
 
-    # non-civic labels
-    "animal",
-    "food",
-    "person portrait",
+    # explicit non-civic / negative labels
+    "single rock on plain background",
+    "stone object",
+    "random object",
     "indoor object",
+    "food",
+    "animal",
+    "person portrait",
     "toy",
     "nature scene",
-    "random object",
     "clean roadway",
     "non-civic scene",
 ]
 
-MIN_CIVIC_CONFIDENCE = 0.32
+MIN_CIVIC_CONFIDENCE = 0.34
 HIGH_CONFIDENCE_THRESHOLD = 0.60
+
+# If a civic label barely beats a non-civic label, reject it.
+MIN_CIVIC_MARGIN_OVER_NON_CIVIC = 0.08
+
+# Water/flood labels often beat pothole when a pothole contains water.
+# If pothole/road-damage is close enough and there is no pipe/drain/sewage cue,
+# prefer POTHOLE over WATER_LEAK.
+POTHOLE_WATER_OVERRIDE_MARGIN = 0.22
+POTHOLE_WATER_OVERRIDE_MIN_SCORE = 0.24
 
 CATEGORY_MAPPING = {
     "pothole": "POTHOLE",
@@ -40,18 +52,31 @@ CATEGORY_MAPPING = {
 }
 
 NON_CIVIC_LABELS = {
-    "animal",
-    "food",
-    "person portrait",
+    "single rock on plain background",
+    "stone object",
+    "random object",
     "indoor object",
+    "food",
+    "animal",
+    "person portrait",
     "toy",
     "nature scene",
-    "random object",
     "clean roadway",
     "non-civic scene",
 }
 
 CIVIC_LABELS = set(CATEGORY_MAPPING.keys())
+
+WATER_LABELS = {
+    "water leak",
+    "sewage overflow",
+    "blocked drain",
+}
+
+POTHOLE_LABELS = {
+    "pothole",
+    "road damage",
+}
 
 HIGH_SEVERITY_LABELS = {
     "sewage overflow",
@@ -70,6 +95,7 @@ MEDIUM_SEVERITY_LABELS = {
 
 HIGH_SEVERITY_KEYWORDS = [
     "flood",
+    "flooded",
     "collapsed",
     "broken",
     "damaged",
@@ -98,11 +124,13 @@ MEDIUM_SEVERITY_KEYWORDS = [
 
 NON_CIVIC_HINTS = [
     "white background",
+    "plain background",
     "studio",
     "animal",
     "food",
     "toy",
     "rock",
+    "stone",
     "flower",
     "table",
     "banana",
@@ -110,6 +138,29 @@ NON_CIVIC_HINTS = [
     "dog",
     "selfie",
     "portrait",
+]
+
+WATER_INFRA_HINTS = [
+    "pipe",
+    "pipeline",
+    "hose",
+    "drain",
+    "sewage",
+    "sewer",
+    "manhole",
+    "leak",
+    "leaking",
+    "gushing",
+    "burst",
+]
+
+ROAD_CONTEXT_HINTS = [
+    "road",
+    "street",
+    "roadway",
+    "lane",
+    "asphalt",
+    "pavement",
 ]
 
 TITLE_BY_CATEGORY = {

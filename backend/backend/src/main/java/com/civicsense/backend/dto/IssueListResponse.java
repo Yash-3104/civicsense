@@ -26,4 +26,7 @@ public class IssueListResponse {
     private Double fakeReportLikelihood;
     private Double duplicateLikelihood;
     private UUID possibleDuplicateIssueId;
+    private String resolutionImageUrl;
+    
+    private LocalDateTime resolvedAt;
 }

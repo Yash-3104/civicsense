@@ -86,4 +86,11 @@ public class Issue {
     @Column(name = "ai_clip_label")
     private String aiClipLabel;
 
+    @Column(columnDefinition = "TEXT")
+    private String resolutionNotes;
+
+    private String resolutionImageUrl;
+
+    private LocalDateTime resolvedAt;
+
 }

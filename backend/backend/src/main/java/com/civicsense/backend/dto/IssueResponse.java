@@ -48,4 +48,9 @@ public class IssueResponse {
     private String aiReasoning;
 
     private UUID possibleDuplicateIssueId;
+    private String resolutionNotes;
+
+    private String resolutionImageUrl;
+
+    private LocalDateTime resolvedAt;
 }

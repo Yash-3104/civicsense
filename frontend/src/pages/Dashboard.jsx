@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -78,16 +79,19 @@ function MapFocusController({ focusTarget }) {
   useEffect(() => {
     if (!map || !focusTarget?.lat || !focusTarget?.lng) return;
 
-    map.closePopup();
+    // Do not force-close marker popups here. Closing the popup during focus
+    // was the reason some issue popups disappeared immediately after click.
+    const currentZoom = map.getZoom();
+    const targetZoom = focusTarget.zoom ?? Math.min(Math.max(currentZoom, 14), 15);
 
     map.flyTo(
       [Number(focusTarget.lat), Number(focusTarget.lng)],
-      Math.max(map.getZoom(), 16),
+      targetZoom,
       {
-        duration: 0.9,
+        duration: 0.35,
       }
     );
-  }, [map, focusTarget?.id, focusTarget?.lat, focusTarget?.lng]);
+  }, [map, focusTarget?.id, focusTarget?.lat, focusTarget?.lng, focusTarget?.zoom]);
 
   return null;
 }
@@ -304,6 +308,8 @@ function AiMetricBar({ label, value, colorClass, helper }) {
 const LOCATION_PLACEHOLDER = "Selected from map";
 const AREA_LOADING = "Resolving area...";
 const AREA_UNAVAILABLE = "Pune area";
+const DEFAULT_MAP_CENTER = { lat: 18.5204, lng: 73.8567 };
+const MAP_FETCH_RADIUS_KM = 50;
 const AI_PREVIEW_URL = "http://localhost:8000/analyze-preview";
 const MAX_UPLOAD_IMAGE_SIZE_BYTES = 1.5 * 1024 * 1024;
 const MAX_UPLOAD_IMAGE_DIMENSION = 1600;
@@ -531,15 +537,25 @@ function getApproxPuneArea(lat, lng) {
   return `${nearest.name}, Pune`;
 }
 
+function hasResolutionProof(issue) {
+  return Boolean(
+    issue?.resolutionImageUrl ||
+      issue?.resolutionNotes ||
+      issue?.resolvedAt
+  );
+}
+
 // Area names are resolved locally for now to avoid browser-side reverse-geocoding
 // CORS/rate-limit issues and repeated map re-renders. Later, move reverse
 // geocoding to the Spring backend and persist the resolved address.
 
 async function fetchNearbyIssues({ queryKey }) {
-  const [_key, lat, lng, category, severity] = queryKey;
+  const [_key, category, severity] = queryKey;
 
+  // Fetch a stable city-wide issue set instead of refetching/remounting
+  // markers on every map pan/flyTo. This keeps marker popups reliable.
   const res = await API.get(
-    `/api/issues/nearby?lat=${lat}&lng=${lng}&radius=5`
+    `/api/issues/nearby?lat=${DEFAULT_MAP_CENTER.lat}&lng=${DEFAULT_MAP_CENTER.lng}&radius=${MAP_FETCH_RADIUS_KM}`
   );
 
   let data = res.data || [];
@@ -561,8 +577,11 @@ export default function Dashboard() {
   const logout = useAuthStore((state) => state.logout);
   const queryClient = useQueryClient();
   const selectedIssueIdRef = useRef(null);
+  const markerRefs = useRef({});
 
-  const [center, setCenter] = useState({ lat: 18.5204, lng: 73.8567 });
+  const [activePopupIssueId, setActivePopupIssueId] = useState(null);
+
+  const [center, setCenter] = useState(DEFAULT_MAP_CENTER);
   const [filter, setFilter] = useState({ category: "", severity: "" });
 
   const [drawerMode, setDrawerMode] = useState("empty");
@@ -598,12 +617,10 @@ export default function Dashboard() {
   const nearbyIssuesQueryKey = useMemo(
     () => [
       "nearby-issues",
-      queryCenter.lat,
-      queryCenter.lng,
       filter.category,
       filter.severity,
     ],
-    [queryCenter.lat, queryCenter.lng, filter.category, filter.severity]
+    [filter.category, filter.severity]
   );
 
   const {
@@ -614,7 +631,7 @@ export default function Dashboard() {
   } = useQuery({
     queryKey: nearbyIssuesQueryKey,
     queryFn: fetchNearbyIssues,
-    enabled: Boolean(queryCenter.lat && queryCenter.lng),
+    enabled: true,
     staleTime: 1000 * 30,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -697,12 +714,21 @@ export default function Dashboard() {
           toast.error("Issue removed from map");
         }
 
-        if (event?.type === "ISSUE_UPDATED" && event?.status) {
+        if (
+          event?.type === "ISSUE_RESOLVED" ||
+          (event?.type === "ISSUE_UPDATED" && event?.status === "RESOLVED")
+        ) {
+          toast.success("Issue resolved with evidence", {
+            description:
+              event?.title || "Resolution proof is now available.",
+          });
+        } else if (event?.type === "ISSUE_UPDATED" && event?.status) {
           toast.message(`Issue status changed to ${event.status}`);
         }
 
         if (
           event?.type === "ISSUE_UPDATED" &&
+          event?.status !== "RESOLVED" &&
           event?.issueId &&
           selectedIssueIdRef.current === event.issueId
         ) {
@@ -714,19 +740,30 @@ export default function Dashboard() {
 
         // ================= TANSTACK QUERY INVALIDATION =================
 
+        const eventIssueId =
+          event?.issueId ||
+          event?.id ||
+          event?.issue?.id ||
+          event?.data?.id;
+
         queryClient.invalidateQueries({
           queryKey: ["nearby-issues"],
         });
 
+        // Also invalidate admin/moderation issue lists when this page is mounted.
+        queryClient.invalidateQueries({
+          queryKey: ["issues"],
+        });
+
         const activeIssueId = selectedIssueIdRef.current;
 
-        if (event?.issueId) {
+        if (eventIssueId) {
           queryClient.invalidateQueries({
-            queryKey: ["issue-detail", event.issueId],
+            queryKey: ["issue-detail", eventIssueId],
           });
         }
 
-        if (activeIssueId && event?.issueId === activeIssueId) {
+        if (activeIssueId) {
           queryClient.invalidateQueries({
             queryKey: ["issue-detail", activeIssueId],
           });
@@ -735,7 +772,7 @@ export default function Dashboard() {
         if (
           event?.type === "ISSUE_DELETED" &&
           activeIssueId &&
-          event?.issueId === activeIssueId
+          eventIssueId === activeIssueId
         ) {
           setDrawerMode("empty");
           setSelectedIssueId(null);
@@ -761,6 +798,39 @@ export default function Dashboard() {
     [issues]
   );
 
+  useEffect(() => {
+    if (!activePopupIssueId) return;
+
+    const openActivePopup = () => {
+      Object.entries(markerRefs.current).forEach(([issueId, marker]) => {
+        if (
+          issueId !== activePopupIssueId &&
+          typeof marker?.closePopup === "function"
+        ) {
+          marker.closePopup();
+        }
+      });
+
+      const marker = markerRefs.current[activePopupIssueId];
+
+      if (marker && typeof marker.openPopup === "function") {
+        marker.openPopup();
+      }
+    };
+
+    // Try immediately, then again after React/Leaflet finishes rendering.
+    // This makes popups appear on the first click instead of only after zoom/pan.
+    openActivePopup();
+
+    const timers = [
+      window.setTimeout(openActivePopup, 60),
+      window.setTimeout(openActivePopup, 180),
+      window.setTimeout(openActivePopup, 420),
+    ];
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [activePopupIssueId, validIssues.length]);
+
   const highSeverityCount = useMemo(
     () => validIssues.filter((issue) => issue.severity === "HIGH").length,
     [validIssues]
@@ -781,24 +851,25 @@ export default function Dashboard() {
   }, [validIssues]);
 
   const clusterVersion = useMemo(() => {
+    // Keep this independent from map center. Including queryCenter here caused
+    // MarkerClusterGroup to remount after every pan/flyTo, which made some
+    // marker popups close or fail to appear inconsistently.
     const issueSignature = validIssues
       .map((issue) => {
         const lat = Number(issue.latitude).toFixed(5);
         const lng = Number(issue.longitude).toFixed(5);
-        return `${issue.id}:${lat}:${lng}:${issue.severity}:${issue.category}`;
+        return `${issue.id}:${lat}:${lng}:${issue.severity}:${issue.category}:${issue.status || ""}:${issue.imageUrl || ""}:${issue.resolutionImageUrl || ""}:${issue.resolvedAt || ""}`;
       })
       .sort()
       .join("|");
 
     return [
-      queryCenter.lat,
-      queryCenter.lng,
       filter.category || "all-categories",
       filter.severity || "all-severities",
       validIssues.length,
       issueSignature,
     ].join("__");
-  }, [validIssues, queryCenter.lat, queryCenter.lng, filter.category, filter.severity]);
+  }, [validIssues, filter.category, filter.severity]);
 
   const getDisplayArea = (issue) => {
     if (!issue) return AREA_UNAVAILABLE;
@@ -844,6 +915,7 @@ export default function Dashboard() {
   };
 
   const openCreateForm = (location) => {
+    setActivePopupIssueId(null);
     setDrawerMode("create");
     setSelectedIssueId(null);
     setSelectedLocation(location);
@@ -858,6 +930,10 @@ export default function Dashboard() {
   };
 
   const openIssueDetail = (issueId, options = {}) => {
+    if (options.openPopup) {
+      setActivePopupIssueId(issueId);
+    }
+
     setDrawerMode("detail");
     setSelectedIssueId(issueId);
     setSelectedLocation(null);
@@ -874,6 +950,7 @@ export default function Dashboard() {
         id: focusIssue.id || issueId,
         lat: Number(focusIssue.latitude),
         lng: Number(focusIssue.longitude),
+        zoom: options.zoom ?? 14,
       });
     }
   };
@@ -881,6 +958,7 @@ export default function Dashboard() {
   const closeIssueDetail = () => {
     setDrawerMode("empty");
     setSelectedIssueId(null);
+    setActivePopupIssueId(null);
   };
 
   const handleOpenMatchedIssue = async (matchedIssue) => {
@@ -904,6 +982,8 @@ export default function Dashboard() {
 
       openIssueDetail(matchedIssueId, {
         focusIssue: issueToOpen,
+        openPopup: true,
+        zoom: 13,
       });
 
       toast.message("Opened matched issue", {
@@ -1249,7 +1329,13 @@ export default function Dashboard() {
                       <button
                         key={issue.id}
                         type="button"
-                        onClick={() => openIssueDetail(issue.id, { focusIssue: issue })}
+                        onClick={() =>
+                          openIssueDetail(issue.id, {
+                            focusIssue: issue,
+                            openPopup: true,
+                            zoom: 13,
+                          })
+                        }
                         className={`w-full rounded-md border p-3 text-left transition-colors ${
                           selectedIssueId === issue.id
                             ? "border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-[#222222]"
@@ -1264,6 +1350,12 @@ export default function Dashboard() {
                             <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
                               {getDisplayArea(issue)}
                             </p>
+
+                            {hasResolutionProof(issue) && (
+                              <span className="mt-2 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                ✔ Resolution proof available
+                              </span>
+                            )}
                           </div>
 
                           <span
@@ -1415,33 +1507,60 @@ export default function Dashboard() {
 
                 <MarkerClusterGroup
                   key={clusterVersion}
-                  chunkedLoading
-                  maxClusterRadius={80}
+                  maxClusterRadius={60}
                   showCoverageOnHover={false}
                   spiderfyOnMaxZoom
-                  removeOutsideVisibleBounds
-                  animate
-                  animateAddingMarkers
+                  removeOutsideVisibleBounds={false}
+                  animate={false}
+                  chunkedLoading={false}
                 >
                   {validIssues.map((issue) => (
                     <Marker
                       key={issue.id}
+                      ref={(marker) => {
+                        if (marker) {
+                          markerRefs.current[issue.id] = marker;
+                        } else {
+                          delete markerRefs.current[issue.id];
+                        }
+                      }}
                       position={[
                         Number(issue.latitude),
                         Number(issue.longitude),
                       ]}
                       eventHandlers={{
-                        click: () => openIssueDetail(issue.id, { focusIssue: issue }),
+                        click: (event) => {
+                          // Marker click should show the popup immediately.
+                          // Do not flyTo/zoom here because map movement can close
+                          // the Leaflet popup before the user sees it.
+                          event?.originalEvent?.stopPropagation?.();
+                          event.target?.openPopup?.();
+                          setActivePopupIssueId(issue.id);
+
+                          openIssueDetail(issue.id, {
+                            openPopup: false,
+                          });
+                        },
+                        popupclose: () => {
+                          setActivePopupIssueId((current) =>
+                            current === issue.id ? null : current
+                          );
+                        },
                       }}
                     >
-                      <Popup autoPan={false} closeOnClick={false}>
+                      <Popup
+                        autoPan={false}
+                        autoClose={false}
+                        closeOnClick={false}
+                        keepInView={false}
+                      >
                         <div className="min-w-[250px] overflow-hidden rounded-xl bg-white p-1 dark:bg-[#111111]">
                           {issue.imageUrl ? (
                             <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-[#2a2a2a]">
                               <img
                                 src={issue.imageUrl}
                                 alt={issue.title}
-                                className="h-40 w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                                className="h-40 w-full bg-black object-contain transition-transform duration-300 hover:scale-[1.02]"
                               />
                             </div>
                           ) : (
@@ -1469,6 +1588,12 @@ export default function Dashboard() {
                                 >
                                   {severityLabels[issue.severity] || issue.severity}
                                 </span>
+
+                                {hasResolutionProof(issue) && (
+                                  <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    ✔ Resolution proof available
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -1733,429 +1858,18 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-              ) : drawerMode === "detail" && selectedIssueId ? (
-                <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
-                  <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h2 className="text-sm font-semibold">Issue details</h2>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Full civic report inspection
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={closeIssueDetail}
-                        className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-[#222222] dark:hover:text-slate-100"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="min-h-0 overflow-y-auto p-4">
-                    {isIssueDetailLoading ? (
-                      <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
-                        Loading issue details...
-                      </div>
-                    ) : !selectedIssue ? (
-                      <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
-                        Issue details unavailable.
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {selectedIssue.imageUrl ? (
-                          <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-[#2a2a2a]">
-                            <img
-                              src={selectedIssue.imageUrl}
-                              alt={selectedIssue.title}
-                              className="h-44 w-full object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-400 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-500">
-                            No image available
-                          </div>
-                        )}
-
-                        <div>
-                          <div className="flex items-start justify-between gap-3">
-                            <h1 className="text-lg font-semibold leading-6 text-slate-950 dark:text-white">
-                              {selectedIssue.title}
-                            </h1>
-
-                            {isIssueDetailFetching && (
-                              <span className="shrink-0 text-xs text-slate-400">
-                                Syncing
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 dark:border-[#2a2a2a] dark:bg-[#101010] dark:text-slate-300">
-                              {categoryLabels[selectedIssue.category] ||
-                                selectedIssue.category}
-                            </span>
-
-                            <span
-                              className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                                severityStyles[selectedIssue.severity] ||
-                                "border-slate-200 bg-slate-50 text-slate-700"
-                              }`}
-                            >
-                              {severityLabels[selectedIssue.severity] ||
-                                selectedIssue.severity}
-                            </span>
-
-                            <span
-                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all duration-300 ${
-                                selectedIssue.status === "VERIFIED"
-                                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
-                                  : selectedIssue.status === "REJECTED"
-                                  ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
-                                  : selectedIssue.status === "RESOLVED"
-                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                  : selectedIssue.status === "IN_PROGRESS"
-                                  ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-                                  : "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300"
-                              }`}
-                            >
-                              <span
-                                className={`h-2 w-2 rounded-full animate-pulse ${
-                                  selectedIssue.status === "VERIFIED"
-                                    ? "bg-blue-500"
-                                    : selectedIssue.status === "REJECTED"
-                                    ? "bg-red-500"
-                                    : selectedIssue.status === "RESOLVED"
-                                    ? "bg-emerald-500"
-                                    : selectedIssue.status === "IN_PROGRESS"
-                                    ? "bg-amber-500"
-                                    : "bg-slate-400"
-                                }`}
-                              />
-
-                              {selectedIssue.status === "REPORTED"
-                                ? "AI Processing"
-                                : selectedIssue.status
-                                ? selectedIssue.status.replace("_", " ")
-                                : "AI Processing"}
-                            </span>
-                          </div>
-                        </div>
-
-                        <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Description
-                          </h3>
-
-                          {renderDescriptionContent()}
-                        </section>
-
-                        {(selectedIssue.possibleDuplicateIssueId ||
-                          (normalizeScore(selectedIssue.duplicateLikelihood) !== null &&
-                            normalizeScore(selectedIssue.duplicateLikelihood) >= 0.55)) && (
-                          <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 shadow-sm dark:border-amber-900/70 dark:bg-amber-950/20">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                                  Possible duplicate detected
-                                </h3>
-
-                                <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
-                                  CivicSense rechecks this report after image AI processing using the AI description, raw caption, CLIP label, semantic similarity, distance, and time proximity.
-                                </p>
-                              </div>
-
-                              <span className="shrink-0 rounded-full border border-amber-300 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-                                {formatPercent(selectedIssue.duplicateLikelihood)} match
-                              </span>
-                            </div>
-
-                            {selectedIssue.possibleDuplicateIssueId && (
-                              <div className="mt-4 rounded-xl border border-amber-200 bg-white/85 p-3 dark:border-amber-900/60 dark:bg-[#111111]/70">
-                                {isPossibleDuplicateFetching ? (
-                                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                                    Loading matched issue preview...
-                                  </p>
-                                ) : possibleDuplicateIssue ? (
-                                  <div className="space-y-3">
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
-                                          {possibleDuplicateIssue.title}
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                          {getDisplayArea(possibleDuplicateIssue)} · {formatDate(possibleDuplicateIssue.createdAt)}
-                                        </p>
-                                      </div>
-
-                                      <span
-                                        className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                                          severityStyles[possibleDuplicateIssue.severity] ||
-                                          "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-200"
-                                        }`}
-                                      >
-                                        {severityLabels[possibleDuplicateIssue.severity] ||
-                                          possibleDuplicateIssue.severity}
-                                      </span>
-                                    </div>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenMatchedIssue(possibleDuplicateIssue)}
-                                      className="rounded-md border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
-                                    >
-                                      Open matched issue
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                                      Matched issue ID:
-                                    </p>
-                                    <p className="break-all rounded-md bg-amber-100 px-2 py-1 text-[11px] font-mono text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-                                      {selectedIssue.possibleDuplicateIssueId}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </section>
-                        )}
-
-                        <section className="grid grid-cols-2 gap-2">
-                          <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                            <p className="text-xs text-slate-400">Reporter</p>
-                            <p className="mt-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
-                              {selectedIssue.reportedBy?.name || "Unknown"}
-                            </p>
-                          </div>
-
-                          <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                            <p className="text-xs text-slate-400">Assigned</p>
-                            <p className="mt-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
-                              {selectedIssue.assignedTo?.name || "Unassigned"}
-                            </p>
-                          </div>
-
-                          <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                            <p className="text-xs text-slate-400">Created</p>
-                            <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">
-                              {formatDate(selectedIssue.createdAt)}
-                            </p>
-                          </div>
-
-                          <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                            <p className="text-xs text-slate-400">Updated</p>
-                            <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">
-                              {formatDate(selectedIssue.updatedAt)}
-                            </p>
-                          </div>
-                        </section>
-
-                        <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-[#262626] dark:bg-[#111111]/80">
-                          {(() => {
-                            const badge = getAiVerificationBadge(selectedIssue);
-                            const reasoningItems = parseAiReasoning(
-                              selectedIssue.aiReasoning
-                            );
-
-                            const hasAiSignals =
-                              selectedIssue.aiConfidenceScore !== null ||
-                              selectedIssue.fakeReportLikelihood !== null ||
-                              selectedIssue.severityConfidence !== null ||
-                              selectedIssue.duplicateLikelihood !== null ||
-                              reasoningItems.length > 0;
-
-                            return (
-                              <>
-                                <div className="mb-4 flex items-start justify-between gap-3">
-                                  <div>
-                                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                                      AI Intelligence
-                                    </h3>
-
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                      Automated civic verification insights
-                                    </p>
-                                  </div>
-
-                                  <span
-                                    className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${badge.className}`}
-                                  >
-                                    {badge.label}
-                                  </span>
-                                </div>
-
-                                {hasAiSignals ? (
-                                  <>
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-[#242424] dark:bg-[#151515]">
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                          Confidence
-                                        </p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                                          {formatPercent(selectedIssue.aiConfidenceScore)}
-                                        </p>
-                                      </div>
-
-                                      <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-[#242424] dark:bg-[#151515]">
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                          Fake Risk
-                                        </p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                                          {formatPercent(selectedIssue.fakeReportLikelihood)}
-                                        </p>
-                                      </div>
-                                    </div>
-
-                                    <div className="mt-4 space-y-4">
-                                      <AiMetricBar
-                                        label="Confidence Score"
-                                        helper="How strongly the AI believes this is a civic issue"
-                                        value={selectedIssue.aiConfidenceScore}
-                                        colorClass={getPositiveScoreBarColor(
-                                          selectedIssue.aiConfidenceScore
-                                        )}
-                                      />
-
-                                      <AiMetricBar
-                                        label="Fake Report Risk"
-                                        helper="Likelihood that the image does not match a valid civic report"
-                                        value={selectedIssue.fakeReportLikelihood}
-                                        colorClass={getRiskScoreBarColor(
-                                          selectedIssue.fakeReportLikelihood
-                                        )}
-                                      />
-
-                                      <AiMetricBar
-                                        label="Severity Certainty"
-                                        helper="Confidence behind the suggested severity level"
-                                        value={selectedIssue.severityConfidence}
-                                        colorClass={getPositiveScoreBarColor(
-                                          selectedIssue.severityConfidence
-                                        )}
-                                      />
-
-                                      <AiMetricBar
-                                        label="Duplicate Likelihood"
-                                        helper="Semantic similarity weighted with geo distance and report timing"
-                                        value={selectedIssue.duplicateLikelihood}
-                                        colorClass={getRiskScoreBarColor(
-                                          selectedIssue.duplicateLikelihood
-                                        )}
-                                      />
-                                    </div>
-
-                                    {reasoningItems.length > 0 && (
-                                      <div className="mt-5 border-t border-slate-100 pt-4 dark:border-[#1f1f1f]">
-                                        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                          AI Reasoning
-                                        </div>
-
-                                        <div className="space-y-2">
-                                          {reasoningItems.map((reason, index) => (
-                                            <div
-                                              key={`${reason}-${index}`}
-                                              className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs text-slate-700 dark:border-[#1f1f1f] dark:bg-[#151515] dark:text-slate-300"
-                                            >
-                                              <span className="mt-0.5 text-emerald-500">
-                                                ✓
-                                              </span>
-
-                                              <span>{reason}</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-500 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-400">
-                                    AI intelligence signals are not available yet.
-                                    They will appear once image analysis completes.
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </section>
-
-                        <section className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Metadata
-                          </h3>
-
-                          <div className="mt-3 space-y-2 text-sm">
-                            <div className="flex justify-between gap-3">
-                              <span className="text-slate-500 dark:text-slate-400">
-                                Area
-                              </span>
-                              <span className="text-right text-slate-800 dark:text-slate-200">
-                                {getDisplayArea(selectedIssue)}
-                              </span>
-                            </div>
-
-                            {selectedIssue.possibleDuplicateIssueId && (
-                              <div className="flex justify-between gap-3">
-                                <span className="text-slate-500 dark:text-slate-400">
-                                  Possible duplicate
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenMatchedIssue(possibleDuplicateIssue || { id: selectedIssue.possibleDuplicateIssueId })}
-                                  className="max-w-[190px] truncate text-right text-amber-700 hover:underline dark:text-amber-300"
-                                >
-                                  {selectedIssue.possibleDuplicateIssueId}
-                                </button>
-                              </div>
-                            )}
-
-                            <div className="flex justify-between gap-3">
-                              <span className="text-slate-500 dark:text-slate-400">
-                                Latitude
-                              </span>
-                              <span className="text-slate-800 dark:text-slate-200">
-                                {selectedIssue.latitude}
-                              </span>
-                            </div>
-
-                            <div className="flex justify-between gap-3">
-                              <span className="text-slate-500 dark:text-slate-400">
-                                Longitude
-                              </span>
-                              <span className="text-slate-800 dark:text-slate-200">
-                                {selectedIssue.longitude}
-                              </span>
-                            </div>
-                          </div>
-                        </section>
-
-                        <section className="rounded-lg border border-dashed border-slate-300 bg-white p-3 dark:border-[#333333] dark:bg-[#101010]">
-                          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Timeline & comments
-                          </h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                            Timeline, status history, comments, and admin notes
-                            will be added in the next backend/frontend upgrade.
-                          </p>
-                        </section>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="border-t border-slate-200 p-4 dark:border-[#2a2a2a]">
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      className="w-full border-0 bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700"
-                      onClick={() => handleDeleteIssue(selectedIssueId)}
-                    >
-                      Delete issue
-                    </Button>
-                  </div>
-                </div>
+               ) : drawerMode === "detail" && selectedIssueId ? (
+                <IssueDetailsDrawer
+                  issue={selectedIssue}
+                  isLoading={isIssueDetailLoading}
+                  isFetching={isIssueDetailFetching}
+                  onClose={closeIssueDetail}
+                  onDeleteIssue={handleDeleteIssue}
+                  possibleDuplicateIssue={possibleDuplicateIssue}
+                  isPossibleDuplicateFetching={isPossibleDuplicateFetching}
+                  onOpenMatchedIssue={handleOpenMatchedIssue}
+                  getDisplayArea={getDisplayArea}
+                />
               ) : (
                 <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
                   <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
