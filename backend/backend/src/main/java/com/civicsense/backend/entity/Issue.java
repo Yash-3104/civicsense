@@ -38,6 +38,7 @@ public class Issue {
     private Double priorityScore;
 
     private Double latitude;
+
     private Double longitude;
 
     private String address;
@@ -49,6 +50,20 @@ public class Issue {
     @ManyToOne
     @JoinColumn(name = "assigned_to")
     private User assignedTo;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "assigned_department")
+    private Department assignedDepartment;
+
+    @Column(name = "assigned_at")
+    private LocalDateTime assignedAt;
+
+    @Column(name = "sla_deadline")
+    private LocalDateTime slaDeadline;
+
+    @Builder.Default
+    @Column(name = "sla_breached")
+    private Boolean slaBreached = false;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -93,4 +108,13 @@ public class Issue {
 
     private LocalDateTime resolvedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rejection_reason")
+    private RejectionReason rejectionReason;
+
+    @Column(name = "rejection_notes", columnDefinition = "TEXT")
+    private String rejectionNotes;
+
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
 }

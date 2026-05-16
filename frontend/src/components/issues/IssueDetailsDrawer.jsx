@@ -1,7 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import ResolveIssueModal from "./ResolveIssueModal";
-import axios from "axios";
+import IssueAssignmentPanel from "@/pages/admin/components/IssueAssignmentPanel";
+import API from "@/services/api";
 import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -130,7 +131,7 @@ function parseAiReasoning(reasoning) {
   return text
     .replace(/^\[/, "")
     .replace(/\]$/, "")
-    .split(/,(?=\s*[A-Z])/) 
+    .split(/,(?=\s*[A-Z])/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -197,8 +198,12 @@ function IssueStatusPill({ status }) {
           ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300"
           : status === "REJECTED"
           ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          : status === "PENDING_CLOSURE"
+          ? "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-900 dark:bg-purple-950/40 dark:text-purple-300"
           : status === "RESOLVED"
           ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+          : status === "ASSIGNED"
+          ? "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950/40 dark:text-cyan-300"
           : status === "IN_PROGRESS"
           ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
           : "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300"
@@ -210,8 +215,12 @@ function IssueStatusPill({ status }) {
             ? "bg-blue-500"
             : status === "REJECTED"
             ? "bg-red-500"
+            : status === "PENDING_CLOSURE"
+            ? "bg-purple-500"
             : status === "RESOLVED"
             ? "bg-emerald-500"
+            : status === "ASSIGNED"
+            ? "bg-cyan-500"
             : status === "IN_PROGRESS"
             ? "bg-amber-500"
             : "bg-slate-400"
@@ -238,34 +247,48 @@ export default function IssueDetailsDrawer({
   onOpenMatchedIssue,
   getDisplayArea = () => "Pune area",
   isAdmin = false,
+  isWorker = false,
   actions = null,
 }) {
   const reasoningItems = parseAiReasoning(issue?.aiReasoning);
   const badge = getAiVerificationBadge(issue);
   const queryClient = useQueryClient();
   const [showResolveModal, setShowResolveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("FAKE_REPORT");
+  const [customRejectionReason, setCustomRejectionReason] = useState("");
 
   const updateStatusMutation = useMutation({
-    mutationFn: async (status) => {
+    mutationFn: async (payload) => {
       if (!issue?.id) {
         throw new Error("Issue ID is missing");
       }
 
-      const token = localStorage.getItem("token");
+      const requestBody =
+        typeof payload === "string"
+          ? { status: payload }
+          : payload;
 
-      await axios.patch(
-        `http://localhost:8031/api/issues/${issue.id}/status`,
-        { status },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+      const response = await API.patch(
+        `/api/issues/${issue.id}/status`,
+        requestBody
       );
+
+      return response.data;
     },
 
-    onSuccess: (_, status) => {
+    onSuccess: (_, payload) => {
+      const status =
+        typeof payload === "string"
+          ? payload
+          : payload?.status;
+
       toast.success(`Issue marked as ${status}`);
+
+      if (status === "REJECTED") {
+        setShowRejectModal(false);
+        setCustomRejectionReason("");
+      }
 
       queryClient.invalidateQueries({
         queryKey: ["issues"],
@@ -275,16 +298,31 @@ export default function IssueDetailsDrawer({
         queryKey: ["nearby-issues"],
       });
 
+      queryClient.invalidateQueries({
+        queryKey: ["worker-issues"],
+        exact: false,
+      });
+
       if (issue?.id) {
         queryClient.invalidateQueries({
-          queryKey: ["issue-detail", issue.id],
+          queryKey: ["issue-detail"],
+          exact: false,
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: ["admin-issue-detail", issue.id],
         });
       }
     },
 
     onError: (error) => {
       console.error("Failed to update issue status", error);
-      toast.error("Failed to update issue status");
+
+      toast.error(
+        error?.response?.data?.message ||
+          error?.response?.data ||
+          "Failed to update issue status"
+      );
     },
   });
 
@@ -300,11 +338,25 @@ export default function IssueDetailsDrawer({
     (normalizeScore(issue?.duplicateLikelihood) !== null &&
       normalizeScore(issue?.duplicateLikelihood) >= 0.55);
 
+  const isPendingClosureIssue = issue?.status === "PENDING_CLOSURE";
+  const isRejectedIssue = issue?.status === "REJECTED";
+  const isResolvedIssue = issue?.status === "RESOLVED";
+
   const hasResolutionEvidence =
-    issue?.status === "RESOLVED" ||
+    isResolvedIssue ||
+    isPendingClosureIssue ||
     Boolean(issue?.resolutionNotes) ||
     Boolean(issue?.resolutionImageUrl) ||
     Boolean(issue?.resolvedAt);
+
+  const shouldShowAssignmentPanel =
+    isAdmin && issue && !isRejectedIssue && !isResolvedIssue && !isPendingClosureIssue;
+
+  const hasRejectionDetails =
+    isRejectedIssue ||
+    Boolean(issue?.rejectionReason) ||
+    Boolean(issue?.rejectionNotes) ||
+    Boolean(issue?.rejectedAt);
 
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
@@ -312,11 +364,17 @@ export default function IssueDetailsDrawer({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">
-              {isAdmin ? "Admin issue review" : "Issue details"}
+              {isAdmin
+                ? "Admin issue review"
+                : isWorker
+                ? "Worker task details"
+                : "Issue details"}
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {isAdmin
                 ? "AI-assisted moderation and operations context"
+                : isWorker
+                ? "Assigned work order and SLA context"
                 : "Full civic report inspection"}
             </p>
           </div>
@@ -399,20 +457,81 @@ export default function IssueDetailsDrawer({
               </div>
             </section>
 
+            {hasRejectionDetails && (
+              <section className="rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/70 dark:bg-red-950/20">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-red-900 dark:text-red-200">
+                      Rejection Details
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-red-700 dark:text-red-300">
+                      This report was rejected during moderation and is not eligible for worker assignment.
+                    </p>
+                  </div>
+
+                  <span className="shrink-0 rounded-full border border-red-300 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
+                    Rejected
+                  </span>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-red-100 bg-white/85 p-3 dark:border-red-900/60 dark:bg-[#111111]/70">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Reason
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                      {issue.rejectionReason
+                        ? issue.rejectionReason.replaceAll("_", " ")
+                        : "Not specified"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-red-100 bg-white/85 p-3 dark:border-red-900/60 dark:bg-[#111111]/70">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Rejected at
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-slate-800 dark:text-slate-200">
+                      {formatDate(issue.rejectedAt)}
+                    </p>
+                  </div>
+                </div>
+
+                {issue.rejectionNotes && (
+                  <div className="mt-3 rounded-xl border border-red-100 bg-white/85 p-3 dark:border-red-900/60 dark:bg-[#111111]/70">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Moderator notes
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-300">
+                      {issue.rejectionNotes}
+                    </p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {shouldShowAssignmentPanel && (
+              <IssueAssignmentPanel
+                issue={issue}
+                isAdmin={isAdmin}
+              />
+            )}
+
             {hasResolutionEvidence && (
               <section className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 shadow-sm dark:border-emerald-900/70 dark:bg-emerald-950/20">
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
-                      Resolution Evidence
+                      {isPendingClosureIssue ? "Closure Review Evidence" : "Resolution Evidence"}
                     </h3>
                     <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
-                      Closure proof submitted by the operations team for accountability and before/after verification.
+                      {isPendingClosureIssue
+                        ? "Worker-submitted proof is awaiting admin verification before final closure."
+                        : "Closure proof submitted by the operations team for accountability and before/after verification."}
                     </p>
                   </div>
 
                   <span className="shrink-0 rounded-full border border-emerald-300 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
-                    Resolved
+                    {isPendingClosureIssue ? "Pending Review" : "Resolved"}
                   </span>
                 </div>
 
@@ -466,7 +585,7 @@ export default function IssueDetailsDrawer({
 
                   <div className="rounded-xl border border-emerald-100 bg-white/85 p-3 dark:border-emerald-900/60 dark:bg-[#111111]/70">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Resolved at
+                      {isPendingClosureIssue ? "Submitted at" : "Resolved at"}
                     </p>
                     <p className="mt-2 text-sm font-medium text-slate-800 dark:text-slate-200">
                       {formatDate(issue.resolvedAt)}
@@ -508,7 +627,8 @@ export default function IssueDetailsDrawer({
                               {possibleDuplicateIssue.title}
                             </p>
                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                              {getDisplayArea(possibleDuplicateIssue)} · {formatDate(possibleDuplicateIssue.createdAt)}
+                              {getDisplayArea(possibleDuplicateIssue)} ·{" "}
+                              {formatDate(possibleDuplicateIssue.createdAt)}
                             </p>
                           </div>
 
@@ -525,7 +645,9 @@ export default function IssueDetailsDrawer({
 
                         <button
                           type="button"
-                          onClick={() => onOpenMatchedIssue?.(possibleDuplicateIssue)}
+                          onClick={() =>
+                            onOpenMatchedIssue?.(possibleDuplicateIssue)
+                          }
                           className="rounded-md border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/70"
                         >
                           Open matched issue
@@ -558,6 +680,22 @@ export default function IssueDetailsDrawer({
                 <p className="text-xs text-slate-400">Assigned</p>
                 <p className="mt-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
                   {issue.assignedTo?.name || "Unassigned"}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
+                <p className="text-xs text-slate-400">Department</p>
+                <p className="mt-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                  {issue.assignedDepartment
+                    ? issue.assignedDepartment.replaceAll("_", " ")
+                    : "Not assigned"}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
+                <p className="text-xs text-slate-400">SLA Deadline</p>
+                <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-200">
+                  {formatDate(issue.slaDeadline)}
                 </p>
               </div>
 
@@ -622,28 +760,36 @@ export default function IssueDetailsDrawer({
                       label="Confidence Score"
                       helper="How strongly the AI believes this is a civic issue"
                       value={issue.aiConfidenceScore}
-                      colorClass={getPositiveScoreBarColor(issue.aiConfidenceScore)}
+                      colorClass={getPositiveScoreBarColor(
+                        issue.aiConfidenceScore
+                      )}
                     />
 
                     <AiMetricBar
                       label="Fake Report Risk"
                       helper="Likelihood that the image does not match a valid civic report"
                       value={issue.fakeReportLikelihood}
-                      colorClass={getRiskScoreBarColor(issue.fakeReportLikelihood)}
+                      colorClass={getRiskScoreBarColor(
+                        issue.fakeReportLikelihood
+                      )}
                     />
 
                     <AiMetricBar
                       label="Severity Certainty"
                       helper="Confidence behind the suggested severity level"
                       value={issue.severityConfidence}
-                      colorClass={getPositiveScoreBarColor(issue.severityConfidence)}
+                      colorClass={getPositiveScoreBarColor(
+                        issue.severityConfidence
+                      )}
                     />
 
                     <AiMetricBar
                       label="Duplicate Likelihood"
                       helper="Semantic duplicate score refined after image AI processing using AI description, raw caption, CLIP label, geo distance, and time proximity"
                       value={issue.duplicateLikelihood}
-                      colorClass={getRiskScoreBarColor(issue.duplicateLikelihood)}
+                      colorClass={getRiskScoreBarColor(
+                        issue.duplicateLikelihood
+                      )}
                     />
                   </div>
 
@@ -729,6 +875,105 @@ export default function IssueDetailsDrawer({
               </p>
             </section>
 
+
+            {isWorker && issue && (
+              <section className="rounded-2xl border border-cyan-200 bg-cyan-50/80 p-4 shadow-sm backdrop-blur-sm dark:border-cyan-900/70 dark:bg-cyan-950/20">
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-cyan-950 dark:text-cyan-100">
+                    Worker Actions
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-cyan-800 dark:text-cyan-300">
+                    Update the operational state of this assigned task.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    disabled={
+                      updateStatusMutation.isPending ||
+                      issue.status !== "ASSIGNED"
+                    }
+                    onClick={() => updateStatusMutation.mutate("IN_PROGRESS")}
+                    className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    START WORK
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={
+                      updateStatusMutation.isPending ||
+                      issue.status === "RESOLVED" ||
+                      issue.status === "REJECTED" ||
+                      issue.status === "PENDING_CLOSURE"
+                    }
+                    onClick={() => setShowResolveModal(true)}
+                    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    SUBMIT REVIEW
+                  </button>
+                </div>
+
+                {issue.status === "ASSIGNED" && (
+                  <p className="mt-3 text-xs text-cyan-800 dark:text-cyan-300">
+                    Start work when the crew begins field execution.
+                  </p>
+                )}
+
+                {issue.status === "IN_PROGRESS" && (
+                  <p className="mt-3 text-xs text-cyan-800 dark:text-cyan-300">
+                    This task is active. Submit resolution evidence once completed.
+                  </p>
+                )}
+
+                {issue.status === "PENDING_CLOSURE" && (
+                  <p className="mt-3 text-xs text-purple-800 dark:text-purple-300">
+                    Evidence submitted. Waiting for admin closure approval.
+                  </p>
+                )}
+              </section>
+            )}
+
+            {isAdmin && isPendingClosureIssue && (
+              <section className="rounded-2xl border border-purple-200 bg-purple-50/80 p-4 shadow-sm backdrop-blur-sm dark:border-purple-900/70 dark:bg-purple-950/20">
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-purple-950 dark:text-purple-100">
+                    Closure Review Required
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-purple-800 dark:text-purple-300">
+                    Worker submitted resolution evidence. Approve final closure only if the before/after proof looks valid.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    disabled={updateStatusMutation.isPending}
+                    onClick={() => updateStatusMutation.mutate("RESOLVED")}
+                    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    APPROVE CLOSURE
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={updateStatusMutation.isPending}
+                    onClick={() => updateStatusMutation.mutate("IN_PROGRESS")}
+                    className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    SEND BACK
+                  </button>
+                </div>
+
+                <p className="mt-3 text-xs text-purple-800 dark:text-purple-300">
+                  Send back moves the issue to IN PROGRESS so the assigned worker can resubmit better evidence.
+                </p>
+              </section>
+            )}
+
             {isAdmin && issue && (
               <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-[#262626] dark:bg-[#111111]/80">
                 <div className="mb-4">
@@ -760,7 +1005,7 @@ export default function IssueDetailsDrawer({
                       updateStatusMutation.isPending ||
                       issue.status === "REJECTED"
                     }
-                    onClick={() => updateStatusMutation.mutate("REJECTED")}
+                    onClick={() => setShowRejectModal(true)}
                     className="rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     REJECT
@@ -770,12 +1015,13 @@ export default function IssueDetailsDrawer({
                     type="button"
                     disabled={
                       updateStatusMutation.isPending ||
-                      issue.status === "RESOLVED"
+                      issue.status === "RESOLVED" ||
+                      issue.status === "PENDING_CLOSURE"
                     }
                     onClick={() => setShowResolveModal(true)}
                     className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    RESOLVE
+                    ADMIN RESOLVE
                   </button>
 
                   <button
@@ -801,6 +1047,92 @@ export default function IssueDetailsDrawer({
         )}
       </div>
 
+      {showRejectModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl">
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-white">
+                Reject issue
+              </h3>
+
+              <p className="mt-1 text-sm leading-6 text-zinc-400">
+                Select a valid rejection reason before marking this civic report as rejected.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">
+                  Rejection reason
+                </label>
+
+                <select
+                  value={rejectionReason}
+                  onChange={(event) => setRejectionReason(event.target.value)}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition focus:border-red-500"
+                >
+                  <option value="FAKE_REPORT">Fake issue / unrelated image</option>
+                  <option value="DUPLICATE_ISSUE">Duplicate issue</option>
+                  <option value="UNCLEAR_IMAGE">Unclear or low-quality image</option>
+                  <option value="INVALID_CATEGORY">Invalid category</option>
+                  <option value="OUTSIDE_SERVICE_AREA">Outside service area</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+
+              {rejectionReason === "OTHER" && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-400">
+                    Custom reason
+                  </label>
+
+                  <textarea
+                    value={customRejectionReason}
+                    onChange={(event) => setCustomRejectionReason(event.target.value)}
+                    rows={3}
+                    placeholder="Explain why this issue is being rejected..."
+                    className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-red-500"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRejectModal(false)}
+                  disabled={updateStatusMutation.isPending}
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    updateStatusMutation.isPending ||
+                    (rejectionReason === "OTHER" &&
+                      customRejectionReason.trim().length < 5)
+                  }
+                  onClick={() =>
+                    updateStatusMutation.mutate({
+                      status: "REJECTED",
+                      rejectionReason,
+                      rejectionNotes:
+                        rejectionReason === "OTHER"
+                          ? customRejectionReason.trim()
+                          : rejectionReason,
+                    })
+                  }
+                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {updateStatusMutation.isPending ? "Rejecting..." : "Reject Issue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ResolveIssueModal
         issue={issue}
         open={showResolveModal}
@@ -821,4 +1153,4 @@ export default function IssueDetailsDrawer({
       )}
     </div>
   );
-} 
+}

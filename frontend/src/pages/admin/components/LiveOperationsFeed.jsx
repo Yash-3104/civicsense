@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ShieldAlert,
   Sparkles,
+  UserCheck,
 } from "lucide-react";
 
 const getEventConfig = (type) => {
@@ -25,6 +26,15 @@ const getEventConfig = (type) => {
         bg: "bg-purple-500/10",
         border: "border-purple-500/20",
         label: "AI Analysis Completed",
+      };
+
+    case "ISSUE_ASSIGNED":
+      return {
+        icon: UserCheck,
+        iconColor: "text-cyan-400",
+        bg: "bg-cyan-500/10",
+        border: "border-cyan-500/20",
+        label: "Issue Assigned",
       };
 
     case "ISSUE_VERIFIED":
@@ -96,36 +106,76 @@ const formatTimeAgo = (timestamp) => {
   const now = new Date();
   const date = new Date(timestamp);
 
-  const seconds =
-    Math.floor((now - date) / 1000);
+  const seconds = Math.floor((now - date) / 1000);
 
-  if (seconds < 60) {
+  if (!Number.isFinite(seconds) || seconds < 60) {
     return "just now";
   }
 
-  const minutes =
-    Math.floor(seconds / 60);
+  const minutes = Math.floor(seconds / 60);
 
   if (minutes < 60) {
     return `${minutes}m ago`;
   }
 
-  const hours =
-    Math.floor(minutes / 60);
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
     return `${hours}h ago`;
   }
 
-  const days =
-    Math.floor(hours / 24);
+  const days = Math.floor(hours / 24);
 
   return `${days}d ago`;
 };
 
-export default function LiveOperationsFeed({
-  events,
-}) {
+const getEventTitle = (event) => {
+  return event.issueTitle || event.title || event.issue?.title || null;
+};
+
+const getEventMessage = (event) => {
+  if (event.message) {
+    return event.message;
+  }
+
+  const title = getEventTitle(event);
+
+  switch (event.type) {
+    case "ISSUE_ASSIGNED":
+      return title
+        ? `"${title}" was assigned to operations.`
+        : "An issue was assigned to operations.";
+
+    case "ISSUE_RESOLVED":
+      return title
+        ? `"${title}" was resolved with evidence.`
+        : "An issue was resolved with evidence.";
+
+    case "AI_ANALYSIS_COMPLETED":
+      return title
+        ? `AI analysis completed for "${title}".`
+        : "AI analysis completed for an issue.";
+
+    case "NEW_ISSUE":
+    case "ISSUE_CREATED":
+      return title
+        ? `New issue reported: "${title}".`
+        : "A new issue was reported.";
+
+    case "ISSUE_UPDATED":
+      return title
+        ? `"${title}" was updated.`
+        : "An issue was updated.";
+
+    case "ISSUE_DELETED":
+      return "An issue was removed.";
+
+    default:
+      return "Realtime civic operations event received.";
+  }
+};
+
+export default function LiveOperationsFeed({ events }) {
   return (
     <div className="space-y-4">
       {events.length === 0 && (
@@ -148,11 +198,10 @@ export default function LiveOperationsFeed({
       )}
 
       {events.map((event, index) => {
-        const config =
-          getEventConfig(event.type);
-
-        const Icon =
-          config.icon;
+        const config = getEventConfig(event.type);
+        const Icon = config.icon;
+        const issueTitle = getEventTitle(event);
+        const message = getEventMessage(event);
 
         return (
           <div
@@ -201,9 +250,7 @@ export default function LiveOperationsFeed({
                       text-zinc-500
                     "
                   >
-                    {formatTimeAgo(
-                      event.timestamp
-                    )}
+                    {formatTimeAgo(event.timestamp)}
                   </span>
                 </div>
 
@@ -214,10 +261,10 @@ export default function LiveOperationsFeed({
                     text-zinc-300
                   "
                 >
-                  {event.message}
+                  {message}
                 </p>
 
-                {event.issueTitle && (
+                {issueTitle && (
                   <div
                     className="
                       mt-3
@@ -236,8 +283,14 @@ export default function LiveOperationsFeed({
                         text-zinc-200
                       "
                     >
-                      {event.issueTitle}
+                      {issueTitle}
                     </p>
+
+                    {event.type === "ISSUE_ASSIGNED" && (
+                      <p className="mt-1 text-xs text-cyan-300">
+                        Worker assignment active
+                      </p>
+                    )}
 
                     {event.type === "ISSUE_RESOLVED" && (
                       <p className="mt-1 text-xs text-emerald-300">

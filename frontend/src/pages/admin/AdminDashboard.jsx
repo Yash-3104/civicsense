@@ -1,7 +1,13 @@
-import { Link } from "react-router-dom";
-import { Shield, Activity, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Shield,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  LogOut,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import API from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import SockJS from "sockjs-client";
 import { Client } from "@stomp/stompjs";
@@ -10,9 +16,12 @@ import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import AdminIssueTable from "./components/AdminIssueTable";
 import ModerationFilters from "./components/ModerationFilters";
 import LiveOperationsFeed from "./components/LiveOperationsFeed";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export default function AdminDashboard() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const logout = useAuthStore((state) => state.logout);
 
   const [selectedIssueId, setSelectedIssueId] = useState(null);
   const [selectedIssueSummary, setSelectedIssueSummary] = useState(null);
@@ -24,38 +33,33 @@ export default function AdminDashboard() {
     setSelectedIssueSummary(null);
   };
 
-  const fetchIssues = async () => {
-    const token = localStorage.getItem("token");
+  const handleLogout = () => {
+    handleCloseDrawer();
+    setLiveEvents([]);
+    queryClient.clear();
+    logout();
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("user");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    navigate("/login", { replace: true });
+  };
 
-    const response = await axios.get("http://localhost:8031/api/issues?page=0&size=100", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  const fetchIssues = async () => {
+    const response = await API.get("/api/issues?page=0&size=100");
 
     return response.data.data || response.data.content || [];
   };
 
   const fetchIssueDetail = async ({ queryKey }) => {
     const [, issueId] = queryKey;
-    const token = localStorage.getItem("token");
 
-    const response = await axios.get(
-      `http://localhost:8031/api/issues/${issueId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    const response = await API.get(`/api/issues/${issueId}`);
 
     return response.data;
   };
 
-  const {
-    data: issues = [],
-    isLoading,
-  } = useQuery({
+  const { data: issues = [], isLoading } = useQuery({
     queryKey: ["issues"],
     queryFn: fetchIssues,
   });
@@ -73,8 +77,7 @@ export default function AdminDashboard() {
     refetchOnWindowFocus: false,
   });
 
-  const possibleDuplicateIssueId =
-    selectedIssue?.possibleDuplicateIssueId;
+  const possibleDuplicateIssueId = selectedIssue?.possibleDuplicateIssueId;
 
   const {
     data: possibleDuplicateIssue,
@@ -146,18 +149,13 @@ export default function AdminDashboard() {
 
   const handleOpenMatchedIssue = (matchedIssue) => {
     if (!matchedIssue?.id) return;
+
     setSelectedIssueId(matchedIssue.id);
     setSelectedIssueSummary(matchedIssue);
   };
 
   const handleDeleteIssue = async (issueId) => {
-    const token = localStorage.getItem("token");
-
-    await axios.delete(`http://localhost:8031/api/issues/${issueId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    await API.delete(`/api/issues/${issueId}`);
 
     if (selectedIssueId === issueId) {
       handleCloseDrawer();
@@ -185,8 +183,15 @@ export default function AdminDashboard() {
               (payload.type === "ISSUE_UPDATED" &&
                 payload.status === "RESOLVED");
 
+            const isPendingClosureEvent =
+              payload.type === "ISSUE_PENDING_CLOSURE" ||
+              (payload.type === "ISSUE_UPDATED" &&
+                payload.status === "PENDING_CLOSURE");
+
             const eventType = isResolvedEvent
               ? "ISSUE_RESOLVED"
+              : isPendingClosureEvent
+              ? "ISSUE_PENDING_CLOSURE"
               : payload.type || "SYSTEM_EVENT";
 
             const event = {
@@ -199,8 +204,16 @@ export default function AdminDashboard() {
                   ? `AI analysis completed for ${
                       payload.title || "the selected issue"
                     }`
+                  : eventType === "ISSUE_PENDING_CLOSURE"
+                  ? `Closure review requested: ${
+                      payload.title || "the selected issue"
+                    }`
                   : eventType === "ISSUE_RESOLVED"
-                  ? `Issue resolved with evidence: ${
+                  ? `Issue closure approved: ${
+                      payload.title || "the selected issue"
+                    }`
+                  : eventType === "ISSUE_ASSIGNED"
+                  ? `Issue assigned to operations: ${
                       payload.title || "the selected issue"
                     }`
                   : eventType === "ISSUE_UPDATED"
@@ -253,7 +266,7 @@ export default function AdminDashboard() {
 
   if (isLoading) {
     return (
-      <div className="p-10 text-white">
+      <div className="min-h-screen bg-zinc-950 p-10 text-white">
         Loading moderation dashboard...
       </div>
     );
@@ -276,22 +289,50 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <Link
-            to="/"
-            className="
-              rounded-lg
-              border
-              border-zinc-700
-              px-4
-              py-2
-              text-sm
-              transition
-              hover:border-zinc-500
-              hover:bg-zinc-800
-            "
-          >
-            Citizen Dashboard
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className="
+                rounded-lg
+                border
+                border-zinc-700
+                px-4
+                py-2
+                text-sm
+                transition
+                hover:border-zinc-500
+                hover:bg-zinc-800
+              "
+            >
+              Citizen Dashboard
+            </Link>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="
+                inline-flex
+                items-center
+                gap-2
+                rounded-lg
+                border
+                border-red-900/70
+                bg-red-950/30
+                px-4
+                py-2
+                text-sm
+                font-medium
+                text-red-300
+                transition
+                hover:border-red-700
+                hover:bg-red-950/60
+                hover:text-red-200
+              "
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -359,17 +400,23 @@ export default function AdminDashboard() {
         </div>
       </main>
 
-      <IssueDetailsDrawer
-        issue={selectedIssue || selectedIssueSummary}
-        isLoading={isSelectedIssueLoading}
-        isFetching={isSelectedIssueFetching}
-        onClose={handleCloseDrawer}
-        onDeleteIssue={handleDeleteIssue}
-        possibleDuplicateIssue={possibleDuplicateIssue}
-        isPossibleDuplicateFetching={isPossibleDuplicateFetching}
-        onOpenMatchedIssue={handleOpenMatchedIssue}
-        isAdmin
-      />
+      {(selectedIssueId || selectedIssueSummary) && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+          <div className="dark fixed right-0 top-0 h-full w-full max-w-[460px] border-l border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl">
+            <IssueDetailsDrawer
+              issue={selectedIssue || selectedIssueSummary}
+              isLoading={isSelectedIssueLoading}
+              isFetching={isSelectedIssueFetching}
+              onClose={handleCloseDrawer}
+              onDeleteIssue={handleDeleteIssue}
+              possibleDuplicateIssue={possibleDuplicateIssue}
+              isPossibleDuplicateFetching={isPossibleDuplicateFetching}
+              onOpenMatchedIssue={handleOpenMatchedIssue}
+              isAdmin
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

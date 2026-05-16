@@ -13,21 +13,44 @@ public class IssueMapResponse {
     private UUID id;
 
     private String title;
+
     private String category;
+
     private String status;
+
     private String severity;
 
     private Double latitude;
+
     private Double longitude;
 
     private String address;
 
     private String imageUrl;
+
     private Double aiConfidenceScore;
+
     private Double fakeReportLikelihood;
+
     private Double duplicateLikelihood;
+
     private UUID possibleDuplicateIssueId;
+
     private String resolutionImageUrl;
 
     private LocalDateTime resolvedAt;
+
+    private UserSummary assignedTo;
+
+    private String assignedDepartment;
+
+    private LocalDateTime assignedAt;
+
+    private LocalDateTime slaDeadline;
+
+    private Boolean slaBreached;
+
+    private String rejectionReason;
+
+    private LocalDateTime rejectedAt;
 }

@@ -21,7 +21,9 @@ public class IssueController {
     private final IssueService issueService;
 
     @PostMapping
-    public IssueResponse createIssue(@RequestBody CreateIssueRequest request) {
+    public IssueResponse createIssue(
+            @RequestBody CreateIssueRequest request
+    ) {
         return issueService.createIssue(request);
     }
 
@@ -38,11 +40,17 @@ public class IssueController {
         filter.setSeverity(severity);
         filter.setStatus(status);
 
-        return issueService.getIssues(filter, page, size);
+        return issueService.getIssues(
+                filter,
+                page,
+                size
+        );
     }
 
     @GetMapping("/{id}")
-    public IssueResponse getIssueById(@PathVariable UUID id) {
+    public IssueResponse getIssueById(
+            @PathVariable UUID id
+    ) {
         return issueService.getIssueById(id);
     }
 
@@ -52,7 +60,24 @@ public class IssueController {
             @RequestParam double lng,
             @RequestParam(defaultValue = "5") double radius
     ) {
-        return issueService.getNearbyIssues(lat, lng, radius);
+        return issueService.getNearbyIssues(
+                lat,
+                lng,
+                radius
+        );
+    }
+
+
+    @GetMapping("/worker/me")
+    public List<IssueListResponse> getMyAssignedIssues() {
+        return issueService.getMyAssignedIssues();
+    }
+
+    @GetMapping("/worker/{workerId}")
+    public List<IssueListResponse> getAssignedIssuesByWorker(
+            @PathVariable UUID workerId
+    ) {
+        return issueService.getAssignedIssuesByWorker(workerId);
     }
 
     @PostMapping("/{id}/upload")
@@ -60,41 +85,62 @@ public class IssueController {
             @PathVariable UUID id,
             @RequestParam("file") MultipartFile file
     ) {
-        return issueService.uploadImage(id, file);
+        return issueService.uploadImage(
+                id,
+                file
+        );
     }
 
     @DeleteMapping("/{id}")
-    public void deleteIssue(@PathVariable UUID id) {
+    public void deleteIssue(
+            @PathVariable UUID id
+    ) {
         issueService.deleteIssue(id);
     }
 
     @PatchMapping("/{id}/status")
-    public ResponseEntity<?> updateIssueStatus(
-            @PathVariable UUID id,
-            @RequestBody UpdateIssueStatusRequest request
-    ) {
-        Issue updatedIssue = issueService.updateIssueStatus(
-                id,
-                request.getStatus()
-        );
+public ResponseEntity<IssueResponse> updateIssueStatus(
+        @PathVariable UUID id,
+        @RequestBody UpdateIssueStatusRequest request
+) {
+    IssueResponse updatedIssue =
+            issueService.updateIssueStatus(
+                    id,
+                    request
+            );
 
-        return ResponseEntity.ok(updatedIssue);
+    return ResponseEntity.ok(updatedIssue);
+}
+    @PatchMapping("/{id}/assign")
+    public ResponseEntity<IssueResponse> assignIssue(
+            @PathVariable UUID id,
+            @RequestBody AssignIssueRequest request
+    ) {
+        IssueResponse assignedIssue =
+                issueService.assignIssue(
+                        id,
+                        request.getWorkerId(),
+                        request.getDepartment()
+                );
+
+        return ResponseEntity.ok(assignedIssue);
     }
 
     @PatchMapping(
             value = "/{id}/resolve",
             consumes = { MediaType.MULTIPART_FORM_DATA_VALUE }
     )
-    public ResponseEntity<?> resolveIssue(
+    public ResponseEntity<IssueResponse> resolveIssue(
             @PathVariable UUID id,
             @RequestParam(required = false) String resolutionNotes,
             @RequestPart(required = false) MultipartFile image
     ) {
-        Issue updatedIssue = issueService.resolveIssue(
-                id,
-                resolutionNotes,
-                image
-        );
+        IssueResponse updatedIssue =
+                issueService.resolveIssue(
+                        id,
+                        resolutionNotes,
+                        image
+                );
 
         return ResponseEntity.ok(updatedIssue);
     }

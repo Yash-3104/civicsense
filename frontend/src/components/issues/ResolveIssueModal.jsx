@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 
-import axios from "axios";
-
 import {
   X,
   CheckCircle2,
@@ -14,6 +12,7 @@ import {
 } from "@tanstack/react-query";
 
 import { toast } from "sonner";
+import API from "@/services/api";
 
 export default function ResolveIssueModal({
   issue,
@@ -87,9 +86,6 @@ export default function ResolveIssueModal({
           );
         }
 
-        const token =
-          localStorage.getItem("token");
-
         const formData =
           new FormData();
 
@@ -105,23 +101,17 @@ export default function ResolveIssueModal({
           );
         }
 
-        await axios.patch(
-          `http://localhost:8031/api/issues/${issue.id}/resolve`,
-          formData,
-          {
-            headers: {
-              Authorization:
-                `Bearer ${token}`,
-              "Content-Type":
-                "multipart/form-data",
-            },
-          }
+        const response = await API.patch(
+          `/api/issues/${issue.id}/resolve`,
+          formData
         );
+
+        return response.data;
       },
 
       onSuccess: () => {
         toast.success(
-          "Issue resolved with evidence"
+          "Resolution evidence submitted for admin review"
         );
 
         queryClient.invalidateQueries({
@@ -132,14 +122,17 @@ export default function ResolveIssueModal({
           queryKey: ["nearby-issues"],
         });
 
-        if (issue?.id) {
-          queryClient.invalidateQueries({
-            queryKey: [
-              "issue-detail",
-              issue.id,
-            ],
-          });
+        queryClient.invalidateQueries({
+          queryKey: ["worker-issues"],
+          exact: false,
+        });
 
+        queryClient.invalidateQueries({
+          queryKey: ["issue-detail"],
+          exact: false,
+        });
+
+        if (issue?.id) {
           queryClient.invalidateQueries({
             queryKey: [
               "admin-issue-detail",
@@ -159,7 +152,9 @@ export default function ResolveIssueModal({
         );
 
         toast.error(
-          "Failed to resolve issue"
+          error?.response?.data?.message ||
+            error?.response?.data ||
+            "Failed to resolve issue"
         );
       },
     });
@@ -198,7 +193,6 @@ export default function ResolveIssueModal({
           shadow-2xl
         "
       >
-        {/* HEADER */}
         <div
           className="
             shrink-0
@@ -233,7 +227,7 @@ export default function ResolveIssueModal({
                     text-green-400
                   "
                 >
-                  Resolution Workflow
+                  Closure Review Workflow
                 </p>
               </div>
 
@@ -244,7 +238,7 @@ export default function ResolveIssueModal({
                   text-white
                 "
               >
-                Resolve Issue
+                Submit Closure Evidence
               </h2>
             </div>
 
@@ -271,7 +265,6 @@ export default function ResolveIssueModal({
           </div>
         </div>
 
-        {/* BODY - scrollable */}
         <div
           className="
             min-h-0
@@ -281,7 +274,6 @@ export default function ResolveIssueModal({
             p-6
           "
         >
-          {/* ISSUE INFO */}
           <div
             className="
               rounded-2xl
@@ -307,7 +299,6 @@ export default function ResolveIssueModal({
             </p>
           </div>
 
-          {/* RESOLUTION NOTES */}
           <div>
             <label
               htmlFor="resolutionNotes"
@@ -319,7 +310,7 @@ export default function ResolveIssueModal({
                 text-zinc-300
               "
             >
-              Resolution Notes
+              Worker Resolution Notes
             </label>
 
             <textarea
@@ -331,7 +322,7 @@ export default function ResolveIssueModal({
                   e.target.value
                 )
               }
-              placeholder="Describe how the issue was resolved..."
+              placeholder="Describe the repair/work completed. Admin will verify before final closure..."
               className="
                 w-full
                 resize-none
@@ -350,7 +341,6 @@ export default function ResolveIssueModal({
             />
           </div>
 
-          {/* IMAGE */}
           <div>
             <label
               className="
@@ -361,7 +351,7 @@ export default function ResolveIssueModal({
                 text-zinc-300
               "
             >
-              Resolution Evidence Image
+              Closure Evidence Image
             </label>
 
             <label
@@ -433,7 +423,6 @@ export default function ResolveIssueModal({
           </div>
         </div>
 
-        {/* FOOTER - always visible */}
         <div
           className="
             shrink-0
@@ -497,7 +486,7 @@ export default function ResolveIssueModal({
             >
               {resolveMutation.isPending
                 ? "Resolving..."
-                : "Submit & Resolve Issue"}
+                : "Submit Closure Evidence"}
             </button>
           </div>
         </div>

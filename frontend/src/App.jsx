@@ -5,6 +5,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import WorkerDashboard from "./pages/worker/WorkerDashboard";
 
 function App() {
   return (
@@ -27,6 +28,18 @@ function App() {
           element={
             <ProtectedRoute>
               <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+
+
+        {/* Worker Dashboard */}
+        <Route
+          path="/worker"
+          element={
+            <ProtectedRoute>
+              <WorkerDashboard />
             </ProtectedRoute>
           }
         />

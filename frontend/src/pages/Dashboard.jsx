@@ -41,7 +41,15 @@ function MapEvents({ onMove }) {
   useMapEvents({
     moveend(e) {
       const center = e.target.getCenter();
-      onMove(center.lat, center.lng);
+      const bounds = e.target.getBounds();
+
+      onMove(center.lat, center.lng, e.target.getZoom(), bounds);
+    },
+    zoomend(e) {
+      const center = e.target.getCenter();
+      const bounds = e.target.getBounds();
+
+      onMove(center.lat, center.lng, e.target.getZoom(), bounds);
     },
   });
 
@@ -309,6 +317,113 @@ const LOCATION_PLACEHOLDER = "Selected from map";
 const AREA_LOADING = "Resolving area...";
 const AREA_UNAVAILABLE = "Pune area";
 const DEFAULT_MAP_CENTER = { lat: 18.5204, lng: 73.8567 };
+
+// City-aware operational regions.
+// Each city has:
+// - issueBounds: where that city's civic issues are considered valid/visible
+// - viewBounds: how far the user can zoom/pan while still being considered
+//   focused on that city.
+// If the viewport starts showing another known city region, we hide clusters
+// so one city's issues do not look globally available.
+const CITY_REGIONS = [
+  {
+    key: "PUNE",
+    label: "Pune",
+    issueBounds: {
+      south: 18.43,
+      north: 18.63,
+      west: 73.73,
+      east: 74.0,
+    },
+    viewBounds: {
+      south: 18.05,
+      north: 19.0,
+      west: 73.25,
+      east: 74.35,
+    },
+  },
+  {
+    key: "MUMBAI",
+    label: "Mumbai",
+    issueBounds: {
+      south: 18.85,
+      north: 19.35,
+      west: 72.75,
+      east: 73.15,
+    },
+    viewBounds: {
+      south: 18.6,
+      north: 19.55,
+      west: 72.55,
+      east: 73.35,
+    },
+  },
+  {
+    key: "NAVI_MUMBAI",
+    label: "Navi Mumbai",
+    issueBounds: {
+      south: 18.88,
+      north: 19.25,
+      west: 73.0,
+      east: 73.25,
+    },
+    viewBounds: {
+      south: 18.72,
+      north: 19.42,
+      west: 72.85,
+      east: 73.45,
+    },
+  },
+  {
+    key: "THANE",
+    label: "Thane",
+    issueBounds: {
+      south: 19.12,
+      north: 19.36,
+      west: 72.88,
+      east: 73.13,
+    },
+    viewBounds: {
+      south: 18.95,
+      north: 19.55,
+      west: 72.72,
+      east: 73.32,
+    },
+  },
+  {
+    key: "NASHIK",
+    label: "Nashik",
+    issueBounds: {
+      south: 19.88,
+      north: 20.12,
+      west: 73.68,
+      east: 74.0,
+    },
+    viewBounds: {
+      south: 19.65,
+      north: 20.35,
+      west: 73.45,
+      east: 74.25,
+    },
+  },
+  {
+    key: "NAGPUR",
+    label: "Nagpur",
+    issueBounds: {
+      south: 21.02,
+      north: 21.28,
+      west: 78.95,
+      east: 79.22,
+    },
+    viewBounds: {
+      south: 20.82,
+      north: 21.48,
+      west: 78.75,
+      east: 79.42,
+    },
+  },
+];
+
 const MAP_FETCH_RADIUS_KM = 50;
 const AI_PREVIEW_URL = "http://localhost:8000/analyze-preview";
 const MAX_UPLOAD_IMAGE_SIZE_BYTES = 1.5 * 1024 * 1024;
@@ -453,6 +568,72 @@ const selectClass =
 function roundCoordinate(value) {
   return Number(value.toFixed(4));
 }
+function isCoordinateInsideBounds(lat, lng, bounds) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return false;
+  }
+
+  return (
+    latitude >= bounds.south &&
+    latitude <= bounds.north &&
+    longitude >= bounds.west &&
+    longitude <= bounds.east
+  );
+}
+
+function getCityRegionForCoordinate(lat, lng, boundsKey = "viewBounds") {
+  return CITY_REGIONS.find((city) =>
+    isCoordinateInsideBounds(lat, lng, city[boundsKey])
+  );
+}
+
+function getIssueCityRegion(issue) {
+  if (!issue) {
+    return null;
+  }
+
+  return getCityRegionForCoordinate(
+    issue.latitude,
+    issue.longitude,
+    "issueBounds"
+  );
+}
+
+function doesLeafletBoundsIntersectBox(leafletBounds, box) {
+  if (!leafletBounds || !box) {
+    return false;
+  }
+
+  const mapSouth = leafletBounds.getSouth();
+  const mapNorth = leafletBounds.getNorth();
+  const mapWest = leafletBounds.getWest();
+  const mapEast = leafletBounds.getEast();
+
+  return !(
+    mapNorth < box.south ||
+    mapSouth > box.north ||
+    mapEast < box.west ||
+    mapWest > box.east
+  );
+}
+
+function doesViewportShowDifferentCity(leafletBounds, activeCityKey) {
+  if (!leafletBounds || !activeCityKey) {
+    return false;
+  }
+
+  return CITY_REGIONS.some((city) => {
+    if (city.key === activeCityKey) {
+      return false;
+    }
+
+    return doesLeafletBoundsIntersectBox(leafletBounds, city.issueBounds);
+  });
+}
+
 
 function formatDate(value) {
   if (!value) return "Not available";
@@ -582,6 +763,8 @@ export default function Dashboard() {
   const [activePopupIssueId, setActivePopupIssueId] = useState(null);
 
   const [center, setCenter] = useState(DEFAULT_MAP_CENTER);
+  const [mapZoom, setMapZoom] = useState(13);
+  const [mapBounds, setMapBounds] = useState(null);
   const [filter, setFilter] = useState({ category: "", severity: "" });
 
   const [drawerMode, setDrawerMode] = useState("empty");
@@ -798,6 +981,37 @@ export default function Dashboard() {
     [issues]
   );
 
+  const activeCityRegion = useMemo(() => {
+    return getCityRegionForCoordinate(center.lat, center.lng, "viewBounds") || null;
+  }, [center.lat, center.lng]);
+
+  const shouldShowCityIssueLayer = useMemo(() => {
+    if (!activeCityRegion) {
+      return false;
+    }
+
+    return !doesViewportShowDifferentCity(mapBounds, activeCityRegion.key);
+  }, [activeCityRegion, mapBounds]);
+
+  const mapVisibleIssues = useMemo(() => {
+    if (!shouldShowCityIssueLayer || !activeCityRegion) {
+      return [];
+    }
+
+    return validIssues.filter((issue) => {
+      const issueCity = getIssueCityRegion(issue);
+      return issueCity?.key === activeCityRegion.key;
+    });
+  }, [validIssues, shouldShowCityIssueLayer, activeCityRegion]);
+
+  const nearbyPanelIssues = mapVisibleIssues;
+
+  useEffect(() => {
+    if (!shouldShowCityIssueLayer) {
+      setActivePopupIssueId(null);
+    }
+  }, [shouldShowCityIssueLayer]);
+
   useEffect(() => {
     if (!activePopupIssueId) return;
 
@@ -829,15 +1043,15 @@ export default function Dashboard() {
     ];
 
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [activePopupIssueId, validIssues.length]);
+  }, [activePopupIssueId, mapVisibleIssues.length]);
 
   const highSeverityCount = useMemo(
-    () => validIssues.filter((issue) => issue.severity === "HIGH").length,
-    [validIssues]
+    () => nearbyPanelIssues.filter((issue) => issue.severity === "HIGH").length,
+    [nearbyPanelIssues]
   );
 
   const heatmapPoints = useMemo(() => {
-    return validIssues.map((issue) => {
+    return mapVisibleIssues.map((issue) => {
       let intensity = 0.55;
 
       if (issue.severity === "HIGH") {
@@ -848,13 +1062,13 @@ export default function Dashboard() {
 
       return [Number(issue.latitude), Number(issue.longitude), intensity];
     });
-  }, [validIssues]);
+  }, [mapVisibleIssues]);
 
   const clusterVersion = useMemo(() => {
     // Keep this independent from map center. Including queryCenter here caused
     // MarkerClusterGroup to remount after every pan/flyTo, which made some
     // marker popups close or fail to appear inconsistently.
-    const issueSignature = validIssues
+    const issueSignature = mapVisibleIssues
       .map((issue) => {
         const lat = Number(issue.latitude).toFixed(5);
         const lng = Number(issue.longitude).toFixed(5);
@@ -866,10 +1080,11 @@ export default function Dashboard() {
     return [
       filter.category || "all-categories",
       filter.severity || "all-severities",
-      validIssues.length,
+      mapVisibleIssues.length,
       issueSignature,
+      shouldShowCityIssueLayer ? "city-layer-visible" : "city-layer-hidden",
     ].join("__");
-  }, [validIssues, filter.category, filter.severity]);
+  }, [mapVisibleIssues, filter.category, filter.severity, shouldShowCityIssueLayer]);
 
   const getDisplayArea = (issue) => {
     if (!issue) return AREA_UNAVAILABLE;
@@ -882,7 +1097,15 @@ export default function Dashboard() {
   };
 
 
-  const handleMapMove = (lat, lng) => {
+  const handleMapMove = (lat, lng, zoom, bounds) => {
+    if (Number.isFinite(Number(zoom))) {
+      setMapZoom(Number(zoom));
+    }
+
+    if (bounds) {
+      setMapBounds(bounds);
+    }
+
     setCenter((previous) => {
       const nextLat = roundCoordinate(lat);
       const nextLng = roundCoordinate(lng);
@@ -1320,12 +1543,12 @@ export default function Dashboard() {
                     <div className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
                       Loading nearby issues...
                     </div>
-                  ) : validIssues.length === 0 ? (
+                  ) : nearbyPanelIssues.length === 0 ? (
                     <div className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
                       No issues found in this area.
                     </div>
                   ) : (
-                    validIssues.slice(0, 8).map((issue) => (
+                    nearbyPanelIssues.slice(0, 8).map((issue) => (
                       <button
                         key={issue.id}
                         type="button"
@@ -1382,7 +1605,7 @@ export default function Dashboard() {
                   <span className="text-slate-500 dark:text-slate-400">
                     Issues
                   </span>
-                  <span>{validIssues.length}</span>
+                  <span>{nearbyPanelIssues.length}</span>
                 </div>
 
                 <div className="mt-1 flex items-center justify-between text-sm">
@@ -1476,7 +1699,7 @@ export default function Dashboard() {
                 )}
 
                 {showHeatmap &&
-                  validIssues.map((issue) => {
+                  mapVisibleIssues.map((issue) => {
                     const glowStyle = getHeatmapGlowStyle(issue.severity);
 
                     return (
@@ -1507,14 +1730,20 @@ export default function Dashboard() {
 
                 <MarkerClusterGroup
                   key={clusterVersion}
-                  maxClusterRadius={60}
+                  maxClusterRadius={(zoom) => {
+                    if (zoom <= 9) return 260;
+                    if (zoom <= 10) return 190;
+                    if (zoom <= 11) return 130;
+                    return 60;
+                  }}
+                  disableClusteringAtZoom={16}
                   showCoverageOnHover={false}
                   spiderfyOnMaxZoom
                   removeOutsideVisibleBounds={false}
                   animate={false}
                   chunkedLoading={false}
                 >
-                  {validIssues.map((issue) => (
+                  {mapVisibleIssues.map((issue) => (
                     <Marker
                       key={issue.id}
                       ref={(marker) => {
@@ -1614,7 +1843,7 @@ export default function Dashboard() {
                 </MarkerClusterGroup>
               </MapContainer>
 
-              {showHeatmap && (
+              {showHeatmap && shouldShowCityIssueLayer && (
                 <div className="absolute bottom-6 left-6 z-[1000] rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-2xl backdrop-blur-xl dark:border-[#2a2a2a] dark:bg-[#111111]/90">
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Civic Density

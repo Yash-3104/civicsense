@@ -1,0 +1,24 @@
+package com.civicsense.backend.entity;
+
+public enum Department {
+
+    ROAD_MAINTENANCE,
+
+    PUBLIC_WORKS,
+
+    URBAN_INFRASTRUCTURE,
+
+    WATER_SUPPLY,
+
+    DRAINAGE_DEPARTMENT,
+
+    SEWAGE_DEPARTMENT,
+
+    WASTE_MANAGEMENT,
+
+    SANITATION_DEPARTMENT,
+
+    ELECTRICAL_DEPARTMENT,
+
+    STREETLIGHT_MAINTENANCE
+}

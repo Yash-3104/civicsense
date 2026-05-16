@@ -2,6 +2,8 @@ package com.civicsense.backend.entity;
 
 public enum UserRole {
     CITIZEN,
-    OFFICER,    
+    OFFICER,
+    WORKER,
+    SUPERVISOR,
     ADMIN
-}           
+}
