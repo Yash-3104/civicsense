@@ -5,18 +5,48 @@ import {
   AlertTriangle,
   CheckCircle2,
   LogOut,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import API from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import SockJS from "sockjs-client";
 import { Client } from "@stomp/stompjs";
+import { toast } from "sonner";
 
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import AdminIssueTable from "./components/AdminIssueTable";
 import ModerationFilters from "./components/ModerationFilters";
 import LiveOperationsFeed from "./components/LiveOperationsFeed";
 import { useAuthStore } from "@/store/useAuthStore";
+
+function getSlaState(issue) {
+  if (!issue || issue.status === "RESOLVED" || issue.status === "REJECTED") {
+    return "CLOSED";
+  }
+
+  if (!issue.slaDeadline) {
+    return "NOT_STARTED";
+  }
+
+  const deadline = new Date(issue.slaDeadline).getTime();
+
+  if (!Number.isFinite(deadline)) {
+    return "UNKNOWN";
+  }
+
+  const diffMs = deadline - Date.now();
+
+  if (issue.slaBreached || diffMs < 0) {
+    return "BREACHED";
+  }
+
+  if (diffMs <= 24 * 60 * 60 * 1000) {
+    return "DUE_SOON";
+  }
+
+  return "ON_TRACK";
+}
 
 export default function AdminDashboard() {
   const queryClient = useQueryClient();
@@ -27,6 +57,8 @@ export default function AdminDashboard() {
   const [selectedIssueSummary, setSelectedIssueSummary] = useState(null);
   const [activeFilter, setActiveFilter] = useState("ALL");
   const [liveEvents, setLiveEvents] = useState([]);
+  const [isDeletingIssue, setIsDeletingIssue] = useState(false);
+  const [deleteCandidateIssue, setDeleteCandidateIssue] = useState(null);
 
   const handleCloseDrawer = () => {
     setSelectedIssueId(null);
@@ -37,25 +69,25 @@ export default function AdminDashboard() {
     handleCloseDrawer();
     setLiveEvents([]);
     queryClient.clear();
+
     logout();
+
     sessionStorage.removeItem("token");
     sessionStorage.removeItem("user");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+
     navigate("/login", { replace: true });
   };
 
   const fetchIssues = async () => {
     const response = await API.get("/api/issues?page=0&size=100");
-
     return response.data.data || response.data.content || [];
   };
 
   const fetchIssueDetail = async ({ queryKey }) => {
     const [, issueId] = queryKey;
-
     const response = await API.get(`/api/issues/${issueId}`);
-
     return response.data;
   };
 
@@ -121,6 +153,15 @@ export default function AdminDashboard() {
       case "UNRESOLVED":
         return issues.filter((issue) => issue.status !== "RESOLVED");
 
+      case "PENDING_CLOSURE":
+        return issues.filter((issue) => issue.status === "PENDING_CLOSURE");
+
+      case "DUE_SOON":
+        return issues.filter((issue) => getSlaState(issue) === "DUE_SOON");
+
+      case "SLA_BREACHED":
+        return issues.filter((issue) => getSlaState(issue) === "BREACHED");
+
       default:
         return issues;
     }
@@ -142,6 +183,10 @@ export default function AdminDashboard() {
     (issue) => issue.status === "RESOLVED"
   ).length;
 
+  const slaBreachedCount = issues.filter(
+    (issue) => getSlaState(issue) === "BREACHED"
+  ).length;
+
   const handleSelectIssue = (issue) => {
     setSelectedIssueId(issue.id);
     setSelectedIssueSummary(issue);
@@ -154,17 +199,79 @@ export default function AdminDashboard() {
     setSelectedIssueSummary(matchedIssue);
   };
 
-  const handleDeleteIssue = async (issueId) => {
-    await API.delete(`/api/issues/${issueId}`);
+  const handleRequestDeleteIssue = (issue) => {
+    if (!issue || isDeletingIssue) return;
+    setDeleteCandidateIssue(issue);
+  };
 
-    if (selectedIssueId === issueId) {
-      handleCloseDrawer();
+  const handleCancelDeleteIssue = () => {
+    if (isDeletingIssue) return;
+    setDeleteCandidateIssue(null);
+  };
+
+  const handleConfirmDeleteIssue = async () => {
+    const issueId = deleteCandidateIssue?.id;
+
+    if (!issueId || isDeletingIssue) return;
+
+    setIsDeletingIssue(true);
+
+    try {
+      await API.delete(`/api/issues/${issueId}`);
+
+      toast.success("Issue deleted", {
+        description: "The issue was removed from admin and citizen map views.",
+      });
+
+      queryClient.setQueryData(["issues"], (oldIssues) => {
+        if (!Array.isArray(oldIssues)) return oldIssues;
+        return oldIssues.filter((issue) => issue.id !== issueId);
+      });
+
+      queryClient.setQueriesData(
+        {
+          queryKey: ["nearby-issues"],
+          exact: false,
+        },
+        (oldIssues) => {
+          if (!Array.isArray(oldIssues)) return oldIssues;
+          return oldIssues.filter((issue) => issue.id !== issueId);
+        }
+      );
+
+      queryClient.removeQueries({
+        queryKey: ["admin-issue-detail", issueId],
+        exact: true,
+      });
+
+      queryClient.removeQueries({
+        queryKey: ["issue-detail", issueId],
+        exact: true,
+      });
+
+      if (selectedIssueId === issueId) {
+        handleCloseDrawer();
+      }
+
+      setDeleteCandidateIssue(null);
+
+      await queryClient.invalidateQueries({ queryKey: ["issues"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["nearby-issues"],
+        exact: false,
+      });
+    } catch (error) {
+      console.error("Admin delete issue failed", error);
+
+      toast.error("Failed to delete issue", {
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data ||
+          "Check that you are logged in as ADMIN/OFFICER/SUPERVISOR.",
+      });
+    } finally {
+      setIsDeletingIssue(false);
     }
-
-    await queryClient.invalidateQueries({ queryKey: ["issues"] });
-    await queryClient.invalidateQueries({
-      queryKey: ["admin-issue-detail", issueId],
-    });
   };
 
   useEffect(() => {
@@ -188,10 +295,14 @@ export default function AdminDashboard() {
               (payload.type === "ISSUE_UPDATED" &&
                 payload.status === "PENDING_CLOSURE");
 
+            const isEscalatedEvent = payload.type === "ISSUE_ESCALATED";
+
             const eventType = isResolvedEvent
               ? "ISSUE_RESOLVED"
               : isPendingClosureEvent
               ? "ISSUE_PENDING_CLOSURE"
+              : isEscalatedEvent
+              ? "ISSUE_ESCALATED"
               : payload.type || "SYSTEM_EVENT";
 
             const event = {
@@ -216,6 +327,8 @@ export default function AdminDashboard() {
                   ? `Issue assigned to operations: ${
                       payload.title || "the selected issue"
                     }`
+                  : eventType === "ISSUE_ESCALATED"
+                  ? `SLA escalated: ${payload.title || "the selected issue"}`
                   : eventType === "ISSUE_UPDATED"
                   ? `Issue updated${payload.status ? ` to ${payload.status}` : ""}`
                   : eventType === "ISSUE_DELETED"
@@ -271,6 +384,8 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  const drawerIssue = selectedIssue || selectedIssueSummary;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -337,7 +452,7 @@ export default function AdminDashboard() {
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm text-zinc-400">Open Issues</p>
@@ -360,6 +475,14 @@ export default function AdminDashboard() {
               <AlertTriangle className="h-5 w-5 text-red-400" />
             </div>
             <h2 className="text-3xl font-bold">{duplicateCount}</h2>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm text-zinc-400">SLA Breached</p>
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+            </div>
+            <h2 className="text-3xl font-bold">{slaBreachedCount}</h2>
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
@@ -404,16 +527,114 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
           <div className="dark fixed right-0 top-0 h-full w-full max-w-[460px] border-l border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl">
             <IssueDetailsDrawer
-              issue={selectedIssue || selectedIssueSummary}
+              issue={drawerIssue}
               isLoading={isSelectedIssueLoading}
               isFetching={isSelectedIssueFetching}
               onClose={handleCloseDrawer}
-              onDeleteIssue={handleDeleteIssue}
               possibleDuplicateIssue={possibleDuplicateIssue}
               isPossibleDuplicateFetching={isPossibleDuplicateFetching}
               onOpenMatchedIssue={handleOpenMatchedIssue}
               isAdmin
+              actions={
+                drawerIssue ? (
+                  <section className="rounded-2xl border border-red-900/70 bg-red-950/20 p-4 shadow-sm">
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold text-red-200">
+                        Development Cleanup
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-red-300/80">
+                        Admin-only delete is enabled temporarily for cleaning test
+                        reports. Later, replace this with delete verification.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={isDeletingIssue}
+                      onClick={() => handleRequestDeleteIssue(drawerIssue)}
+                      className="
+                        inline-flex
+                        w-full
+                        items-center
+                        justify-center
+                        gap-2
+                        rounded-xl
+                        bg-red-600
+                        px-4
+                        py-3
+                        text-sm
+                        font-semibold
+                        text-white
+                        transition
+                        hover:bg-red-500
+                        disabled:cursor-not-allowed
+                        disabled:opacity-60
+                      "
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {isDeletingIssue ? "Deleting..." : "Delete Issue"}
+                    </button>
+                  </section>
+                ) : null
+              }
             />
+          </div>
+        </div>
+      )}
+
+      {deleteCandidateIssue && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-red-900/60 bg-zinc-950 p-5 shadow-2xl">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="rounded-xl bg-red-500/15 p-2 text-red-300">
+                <Trash2 className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  Delete issue from CivicSense?
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">
+                  This action removes the report from the admin queue and the citizen map.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-red-300/90">
+                  This is enabled only for development cleanup. Later, replace it with a verified deletion workflow.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Issue
+              </p>
+              <p className="mt-1 text-sm font-medium text-zinc-100">
+                {deleteCandidateIssue.title || "Untitled issue"}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {deleteCandidateIssue.category || "Unknown category"} · {deleteCandidateIssue.status || "Unknown status"}
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={isDeletingIssue}
+                onClick={handleCancelDeleteIssue}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeletingIssue}
+                onClick={handleConfirmDeleteIssue}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {isDeletingIssue ? "Deleting..." : "Delete issue"}
+              </button>
+            </div>
           </div>
         </div>
       )}

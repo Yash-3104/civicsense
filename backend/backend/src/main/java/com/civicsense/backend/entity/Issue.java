@@ -65,6 +65,23 @@ public class Issue {
     @Column(name = "sla_breached")
     private Boolean slaBreached = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "escalation_reason")
+    private EscalationReason escalationReason;
+
+    @Column(name = "escalation_notes", columnDefinition = "TEXT")
+    private String escalationNotes;
+
+    @Column(name = "escalated_at")
+    private LocalDateTime escalatedAt;
+
+    @ManyToOne
+    @JoinColumn(name = "escalated_by")
+    private User escalatedBy;
+
+    @Column(name = "escalation_level")
+    private String escalationLevel;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

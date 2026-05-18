@@ -64,6 +64,15 @@ const getEventConfig = (type) => {
         label: "Issue Resolved",
       };
 
+    case "ISSUE_ESCALATED":
+      return {
+        icon: AlertTriangle,
+        iconColor: "text-red-400",
+        bg: "bg-red-500/10",
+        border: "border-red-500/20",
+        label: "SLA Escalated",
+      };
+
     case "DUPLICATE_DETECTED":
       return {
         icon: AlertTriangle,
@@ -150,6 +159,11 @@ const getEventMessage = (event) => {
       return title
         ? `"${title}" was resolved with evidence.`
         : "An issue was resolved with evidence.";
+
+    case "ISSUE_ESCALATED":
+      return title
+        ? `SLA breached/escalated for "${title}".`
+        : "SLA breached/escalated for an issue.";
 
     case "AI_ANALYSIS_COMPLETED":
       return title
@@ -295,6 +309,12 @@ export default function LiveOperationsFeed({ events }) {
                     {event.type === "ISSUE_RESOLVED" && (
                       <p className="mt-1 text-xs text-emerald-300">
                         Resolution proof available
+                      </p>
+                    )}
+
+                    {event.type === "ISSUE_ESCALATED" && (
+                      <p className="mt-1 text-xs text-red-300">
+                        SLA breach/escalation active
                       </p>
                     )}
                   </div>

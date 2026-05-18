@@ -20,11 +20,16 @@ public class IssueMapResponse {
 
     private String severity;
 
+
     private Double latitude;
 
     private Double longitude;
 
     private String address;
+
+
+
+    private LocalDateTime createdAt;
 
     private String imageUrl;
 
@@ -50,7 +55,21 @@ public class IssueMapResponse {
 
     private Boolean slaBreached;
 
+    private String escalationReason;
+
+    private String escalationNotes;
+
+    private LocalDateTime escalatedAt;
+
+    private UserSummary escalatedBy;
+
+    private String escalationLevel;
+
     private String rejectionReason;
 
+
+
     private LocalDateTime rejectedAt;
+
+
 }

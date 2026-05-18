@@ -21,9 +21,7 @@ public class IssueController {
     private final IssueService issueService;
 
     @PostMapping
-    public IssueResponse createIssue(
-            @RequestBody CreateIssueRequest request
-    ) {
+    public IssueResponse createIssue(@RequestBody CreateIssueRequest request) {
         return issueService.createIssue(request);
     }
 
@@ -40,18 +38,17 @@ public class IssueController {
         filter.setSeverity(severity);
         filter.setStatus(status);
 
-        return issueService.getIssues(
-                filter,
-                page,
-                size
-        );
+        return issueService.getIssues(filter, page, size);
     }
 
     @GetMapping("/{id}")
-    public IssueResponse getIssueById(
-            @PathVariable UUID id
-    ) {
+    public IssueResponse getIssueById(@PathVariable UUID id) {
         return issueService.getIssueById(id);
+    }
+
+    @GetMapping("/{id}/timeline")
+    public List<IssueActivityResponse> getIssueTimeline(@PathVariable UUID id) {
+        return issueService.getIssueTimeline(id);
     }
 
     @GetMapping("/nearby")
@@ -60,13 +57,8 @@ public class IssueController {
             @RequestParam double lng,
             @RequestParam(defaultValue = "5") double radius
     ) {
-        return issueService.getNearbyIssues(
-                lat,
-                lng,
-                radius
-        );
+        return issueService.getNearbyIssues(lat, lng, radius);
     }
-
 
     @GetMapping("/worker/me")
     public List<IssueListResponse> getMyAssignedIssues() {
@@ -74,9 +66,7 @@ public class IssueController {
     }
 
     @GetMapping("/worker/{workerId}")
-    public List<IssueListResponse> getAssignedIssuesByWorker(
-            @PathVariable UUID workerId
-    ) {
+    public List<IssueListResponse> getAssignedIssuesByWorker(@PathVariable UUID workerId) {
         return issueService.getAssignedIssuesByWorker(workerId);
     }
 
@@ -85,45 +75,46 @@ public class IssueController {
             @PathVariable UUID id,
             @RequestParam("file") MultipartFile file
     ) {
-        return issueService.uploadImage(
-                id,
-                file
-        );
+        return issueService.uploadImage(id, file);
     }
 
     @DeleteMapping("/{id}")
-    public void deleteIssue(
-            @PathVariable UUID id
-    ) {
+    public void deleteIssue(@PathVariable UUID id) {
         issueService.deleteIssue(id);
     }
 
     @PatchMapping("/{id}/status")
-public ResponseEntity<IssueResponse> updateIssueStatus(
-        @PathVariable UUID id,
-        @RequestBody UpdateIssueStatusRequest request
-) {
-    IssueResponse updatedIssue =
-            issueService.updateIssueStatus(
-                    id,
-                    request
-            );
+    public ResponseEntity<IssueResponse> updateIssueStatus(
+            @PathVariable UUID id,
+            @RequestBody UpdateIssueStatusRequest request
+    ) {
+        IssueResponse updatedIssue = issueService.updateIssueStatus(id, request);
 
-    return ResponseEntity.ok(updatedIssue);
-}
+        return ResponseEntity.ok(updatedIssue);
+    }
+
     @PatchMapping("/{id}/assign")
     public ResponseEntity<IssueResponse> assignIssue(
             @PathVariable UUID id,
             @RequestBody AssignIssueRequest request
     ) {
-        IssueResponse assignedIssue =
-                issueService.assignIssue(
-                        id,
-                        request.getWorkerId(),
-                        request.getDepartment()
-                );
+        IssueResponse assignedIssue = issueService.assignIssue(
+                id,
+                request.getWorkerId(),
+                request.getDepartment()
+        );
 
         return ResponseEntity.ok(assignedIssue);
+    }
+
+    @PatchMapping("/{id}/escalate")
+    public ResponseEntity<IssueResponse> escalateIssue(
+            @PathVariable UUID id,
+            @RequestBody(required = false) EscalateIssueRequest request
+    ) {
+        IssueResponse escalatedIssue = issueService.escalateIssue(id, request);
+
+        return ResponseEntity.ok(escalatedIssue);
     }
 
     @PatchMapping(
@@ -135,12 +126,7 @@ public ResponseEntity<IssueResponse> updateIssueStatus(
             @RequestParam(required = false) String resolutionNotes,
             @RequestPart(required = false) MultipartFile image
     ) {
-        IssueResponse updatedIssue =
-                issueService.resolveIssue(
-                        id,
-                        resolutionNotes,
-                        image
-                );
+        IssueResponse updatedIssue = issueService.resolveIssue(id, resolutionNotes, image);
 
         return ResponseEntity.ok(updatedIssue);
     }

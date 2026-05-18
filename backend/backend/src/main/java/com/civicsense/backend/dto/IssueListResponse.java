@@ -20,7 +20,10 @@ public class IssueListResponse {
 
     private String severity;
 
+
     private String address;
+
+
 
     private LocalDateTime createdAt;
 
@@ -48,7 +51,18 @@ public class IssueListResponse {
 
     private Boolean slaBreached;
 
+    private String escalationReason;
+
+    private String escalationNotes;
+
+    private LocalDateTime escalatedAt;
+
+    private UserSummary escalatedBy;
+
+    private String escalationLevel;
+
     private String rejectionReason;
 
     private LocalDateTime rejectedAt;
+
 }

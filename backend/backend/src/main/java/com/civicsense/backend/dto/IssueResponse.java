@@ -43,6 +43,16 @@ public class IssueResponse {
 
     private Boolean slaBreached;
 
+    private String escalationReason;
+
+    private String escalationNotes;
+
+    private LocalDateTime escalatedAt;
+
+    private UserSummary escalatedBy;
+
+    private String escalationLevel;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

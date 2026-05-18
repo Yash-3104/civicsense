@@ -1,0 +1,17 @@
+package com.civicsense.backend.entity;
+
+public enum IssueActivityType {
+    ISSUE_CREATED,
+    AI_ANALYSIS_COMPLETED,
+    STATUS_CHANGED,
+    ISSUE_VERIFIED,
+    ISSUE_REJECTED,
+    ISSUE_ASSIGNED,
+    WORK_STARTED,
+    IMAGE_UPLOADED,
+    CLOSURE_SUBMITTED,
+    CLOSURE_APPROVED,
+    ISSUE_SENT_BACK,
+    ISSUE_ESCALATED,
+    ISSUE_DELETED
+}

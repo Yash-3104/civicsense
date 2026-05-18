@@ -547,6 +547,8 @@ const statusStyles = {
     "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300",
   IN_PROGRESS:
     "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-900 dark:bg-purple-950/40 dark:text-purple-300",
+  PENDING_CLOSURE:
+    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
   RESOLVED:
     "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
   REJECTED:
@@ -897,6 +899,12 @@ export default function Dashboard() {
           toast.error("Issue removed from map");
         }
 
+        if (event?.type === "ISSUE_ESCALATED") {
+          toast.warning("Issue delayed", {
+            description: event?.title || "An issue has been escalated due to SLA risk.",
+          });
+        }
+
         if (
           event?.type === "ISSUE_RESOLVED" ||
           (event?.type === "ISSUE_UPDATED" && event?.status === "RESOLVED")
@@ -929,8 +937,47 @@ export default function Dashboard() {
           event?.issue?.id ||
           event?.data?.id;
 
-        queryClient.invalidateQueries({
+        const activeIssueId = selectedIssueIdRef.current;
+
+        if (event?.type === "ISSUE_DELETED" && eventIssueId) {
+          const marker = markerRefs.current[eventIssueId];
+
+          if (marker && typeof marker.closePopup === "function") {
+            marker.closePopup();
+          }
+
+          delete markerRefs.current[eventIssueId];
+
+          setActivePopupIssueId((currentIssueId) =>
+            currentIssueId === eventIssueId ? null : currentIssueId
+          );
+
+          queryClient.setQueriesData(
+            {
+              queryKey: ["nearby-issues"],
+              exact: false,
+            },
+            (oldIssues) => {
+              if (!Array.isArray(oldIssues)) return oldIssues;
+              return oldIssues.filter((issue) => issue.id !== eventIssueId);
+            }
+          );
+
+          queryClient.removeQueries({
+            queryKey: ["issue-detail", eventIssueId],
+            exact: true,
+          });
+
+          if (activeIssueId === eventIssueId) {
+            setDrawerMode("empty");
+            setSelectedIssueId(null);
+            setSelectedLocation(null);
+          }
+        }
+
+        await queryClient.invalidateQueries({
           queryKey: ["nearby-issues"],
+          exact: false,
         });
 
         // Also invalidate admin/moderation issue lists when this page is mounted.
@@ -938,27 +985,16 @@ export default function Dashboard() {
           queryKey: ["issues"],
         });
 
-        const activeIssueId = selectedIssueIdRef.current;
-
         if (eventIssueId) {
           queryClient.invalidateQueries({
             queryKey: ["issue-detail", eventIssueId],
           });
         }
 
-        if (activeIssueId) {
+        if (activeIssueId && activeIssueId !== eventIssueId) {
           queryClient.invalidateQueries({
             queryKey: ["issue-detail", activeIssueId],
           });
-        }
-
-        if (
-          event?.type === "ISSUE_DELETED" &&
-          activeIssueId &&
-          eventIssueId === activeIssueId
-        ) {
-          setDrawerMode("empty");
-          setSelectedIssueId(null);
         }
       },
     });
@@ -1387,22 +1423,6 @@ export default function Dashboard() {
       alert("Failed to create issue");
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleDeleteIssue = async (issueId) => {
-    const confirmed = window.confirm("Delete this issue?");
-    if (!confirmed) return;
-
-    try {
-      await API.delete(`/api/issues/${issueId}`);
-
-      if (selectedIssueId === issueId) closeIssueDetail();
-
-      await refreshIssues();
-    } catch (err) {
-      console.error("Delete issue failed", err);
-      alert("Delete failed");
     }
   };
 
@@ -2093,7 +2113,6 @@ export default function Dashboard() {
                   isLoading={isIssueDetailLoading}
                   isFetching={isIssueDetailFetching}
                   onClose={closeIssueDetail}
-                  onDeleteIssue={handleDeleteIssue}
                   possibleDuplicateIssue={possibleDuplicateIssue}
                   isPossibleDuplicateFetching={isPossibleDuplicateFetching}
                   onOpenMatchedIssue={handleOpenMatchedIssue}

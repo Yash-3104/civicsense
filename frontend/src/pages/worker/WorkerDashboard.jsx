@@ -186,6 +186,12 @@ export default function WorkerDashboard() {
           });
         }
 
+        if (event?.type === "ISSUE_ESCALATED") {
+          toast.warning("SLA escalation recorded", {
+            description: event?.title || "A task in your queue may need urgent attention.",
+          });
+        }
+
         if (event?.type === "ISSUE_RESOLVED") {
           toast.success("Task resolved", {
             description: event?.title || "Resolution approved by admin.",

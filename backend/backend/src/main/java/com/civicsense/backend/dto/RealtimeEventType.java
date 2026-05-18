@@ -15,9 +15,10 @@ public final class RealtimeEventType {
     public static final String ISSUE_RESOLVED = "ISSUE_RESOLVED";
 
     public static final String ISSUE_ASSIGNED = "ISSUE_ASSIGNED";
-   
+
     public static final String ISSUE_REJECTED = "ISSUE_REJECTED";
 
     public static final String ISSUE_PENDING_CLOSURE = "ISSUE_PENDING_CLOSURE";
 
+    public static final String ISSUE_ESCALATED = "ISSUE_ESCALATED";
 }

@@ -47,7 +47,7 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
 
-                        // CORS preflight must come BEFORE protected route matchers
+                        // CORS preflight
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
                                 "/**"
@@ -83,21 +83,31 @@ public class SecurityConfig {
                                 "SUPERVISOR"
                         )
 
+                        // Department listing for assignment UI
+                        // Include BOTH exact base path and nested paths.
+                        .requestMatchers(
+                                "/api/departments",
+                                "/api/departments/**"
+                        ).permitAll()
+                        // Worker listing for assignment UI
+                        // Include BOTH exact base path and nested paths.
+                        .requestMatchers(
+                                "/api/workers",
+                                "/api/workers/**"
+                        )
+                        .hasAnyRole(
+                                "ADMIN",
+                                "OFFICER",
+                                "WORKER",
+                                "SUPERVISOR"
+                        )
+
                         // Issue routes
                         .requestMatchers("/api/issues/**")
                         .hasAnyRole(
                                 "CITIZEN",
                                 "OFFICER",
                                 "ADMIN",
-                                "WORKER",
-                                "SUPERVISOR"
-                        )
-
-                        // Worker listing / worker dashboard support
-                        .requestMatchers("/api/workers/**")
-                        .hasAnyRole(
-                                "ADMIN",
-                                "OFFICER",
                                 "WORKER",
                                 "SUPERVISOR"
                         )

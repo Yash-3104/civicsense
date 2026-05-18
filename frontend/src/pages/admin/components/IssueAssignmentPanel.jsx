@@ -1,17 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
-const API_BASE_URL = "http://localhost:8031";
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("token");
-
-  return {
-    Authorization: `Bearer ${token}`,
-  };
-}
+import API from "@/services/api";
 
 function formatDepartmentLabel(value) {
   if (!value) {
@@ -51,12 +41,14 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
     Boolean(issue?.assignedTo?.id) ||
     issue?.status === "ASSIGNED" ||
     issue?.status === "IN_PROGRESS" ||
+    issue?.status === "PENDING_CLOSURE" ||
     issue?.status === "RESOLVED";
 
   const {
     data: departments = [],
     isLoading: departmentsLoading,
     isError: departmentsError,
+    error: departmentsErrorObject,
   } = useQuery({
     queryKey: ["departments", category],
     queryFn: async () => {
@@ -64,13 +56,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
         return [];
       }
 
-      const response = await axios.get(
-        `${API_BASE_URL}/api/departments/${category}`,
-        {
-          headers: getAuthHeaders(),
-        }
-      );
-
+      const response = await API.get(`/api/departments/${category}`);
       return response.data || [];
     },
     enabled: Boolean(category) && isAdmin && !isAssigned,
@@ -81,6 +67,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
     data: workers = [],
     isLoading: workersLoading,
     isError: workersError,
+    error: workersErrorObject,
   } = useQuery({
     queryKey: ["workers", selectedDepartment],
     queryFn: async () => {
@@ -88,11 +75,8 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
         return [];
       }
 
-      const response = await axios.get(
-        `${API_BASE_URL}/api/workers/by-department/${selectedDepartment}`,
-        {
-          headers: getAuthHeaders(),
-        }
+      const response = await API.get(
+        `/api/workers/by-department/${selectedDepartment}`
       );
 
       return response.data || [];
@@ -137,24 +121,17 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
         throw new Error("Please select a worker");
       }
 
-      const response = await axios.patch(
-        `${API_BASE_URL}/api/issues/${issue.id}/assign`,
-        {
-          workerId: selectedWorkerId,
-          department: selectedDepartment,
-        },
-        {
-          headers: getAuthHeaders(),
-        }
-      );
+      const response = await API.patch(`/api/issues/${issue.id}/assign`, {
+        workerId: selectedWorkerId,
+        department: selectedDepartment,
+      });
 
       return response.data;
     },
+
     onSuccess: (assignedIssue) => {
       const workerName =
-        assignedIssue?.assignedTo?.name ||
-        selectedWorker?.name ||
-        "worker";
+        assignedIssue?.assignedTo?.name || selectedWorker?.name || "worker";
 
       toast.success(`Issue assigned to ${workerName}`);
 
@@ -168,11 +145,18 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
 
       queryClient.invalidateQueries({
         queryKey: ["workers"],
+        exact: false,
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["worker-issues"],
+        exact: false,
       });
 
       if (issue?.id) {
         queryClient.invalidateQueries({
-          queryKey: ["issue-detail", issue.id],
+          queryKey: ["issue-detail"],
+          exact: false,
         });
 
         queryClient.invalidateQueries({
@@ -180,6 +164,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
         });
       }
     },
+
     onError: (error) => {
       console.error("Assignment failed", error);
 
@@ -196,6 +181,8 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
     Boolean(selectedWorkerId) &&
     isAdmin &&
     !isAssigned;
+
+  const assignmentDataError = departmentsError || workersError;
 
   return (
     <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
@@ -252,11 +239,18 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
         </div>
       ) : (
         <div className="space-y-4">
-          {(departmentsError || workersError) && (
+          {assignmentDataError && (
             <div className="rounded-xl border border-red-900/70 bg-red-950/30 px-3 py-2 text-xs text-red-300">
-              Failed to load assignment data. Check that your admin token is
-              valid and that `/api/departments/**` and `/api/workers/**` are
-              allowed for ADMIN in SecurityConfig.
+              <p className="font-semibold">Failed to load assignment data.</p>
+              <p className="mt-1">
+                Department error:{" "}
+                {departmentsErrorObject?.response?.status || "none"} · Worker
+                error: {workersErrorObject?.response?.status || "none"}
+              </p>
+              <p className="mt-1">
+                Log out, log in again as admin, and confirm the backend allows
+                department routes.
+              </p>
             </div>
           )}
 
@@ -305,9 +299,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-500"
             >
               <option value="">
-                {workersLoading
-                  ? "Loading workers..."
-                  : "Select worker"}
+                {workersLoading ? "Loading workers..." : "Select worker"}
               </option>
 
               {workers.map((worker) => (

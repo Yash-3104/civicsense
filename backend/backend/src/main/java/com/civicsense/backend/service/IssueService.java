@@ -1,10 +1,12 @@
 package com.civicsense.backend.service;
 
 import com.civicsense.backend.dto.CreateIssueRequest;
+import com.civicsense.backend.dto.EscalateIssueRequest;
 import com.civicsense.backend.dto.IssueFilterRequest;
 import com.civicsense.backend.dto.IssueImageUploadedEvent;
 import com.civicsense.backend.dto.IssueListResponse;
 import com.civicsense.backend.dto.IssueMapResponse;
+import com.civicsense.backend.dto.IssueActivityResponse;
 import com.civicsense.backend.dto.IssueResponse;
 import com.civicsense.backend.dto.PaginatedResponse;
 import com.civicsense.backend.dto.RealtimeEventType;
@@ -12,9 +14,11 @@ import com.civicsense.backend.dto.UpdateIssueStatusRequest;
 import com.civicsense.backend.dto.UserSummary;
 
 import com.civicsense.backend.entity.Department;
+import com.civicsense.backend.entity.EscalationReason;
 import com.civicsense.backend.entity.Issue;
 import com.civicsense.backend.entity.IssueMedia;
 import com.civicsense.backend.entity.IssueStatus;
+import com.civicsense.backend.entity.IssueActivityType;
 import com.civicsense.backend.entity.MediaType;
 import com.civicsense.backend.entity.RejectionReason;
 import com.civicsense.backend.entity.SeverityLevel;
@@ -61,6 +65,7 @@ public class IssueService {
     private final IssueEventProducer issueEventProducer;
     private final RealtimeEventService realtimeEventService;
     private final AiServiceClient aiServiceClient;
+    private final IssueActivityService issueActivityService;
 
     public IssueResponse createIssue(CreateIssueRequest request) {
 
@@ -92,6 +97,13 @@ public class IssueService {
 
         saved = enrichDuplicateLikelihood(saved);
 
+        issueActivityService.recordActivity(
+                saved,
+                IssueActivityType.ISSUE_CREATED,
+                "Issue reported by " + safeUserName(user),
+                user
+        );
+
         realtimeEventService.publishIssueEvent(
                 RealtimeEventType.NEW_ISSUE,
                 saved
@@ -109,6 +121,8 @@ public class IssueService {
         Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new RuntimeException("Issue not found"));
 
+        IssueStatus previousStatus = issue.getStatus();
+
         IssueStatus status = request.getStatus();
 
         if (status == null) {
@@ -122,6 +136,7 @@ public class IssueService {
         if (status == IssueStatus.RESOLVED) {
             validateAdminCanApproveClosure(issue);
             issue.setSlaBreached(false);
+            clearEscalationDetails(issue);
         }
 
         if (status == IssueStatus.PENDING_CLOSURE) {
@@ -148,6 +163,7 @@ public class IssueService {
             issue.setAssignedAt(null);
             issue.setSlaDeadline(null);
             issue.setSlaBreached(false);
+            clearEscalationDetails(issue);
         }
 
         if (status != IssueStatus.REJECTED) {
@@ -160,6 +176,13 @@ public class IssueService {
         issue.setUpdatedAt(LocalDateTime.now());
 
         Issue savedIssue = issueRepository.save(issue);
+
+        issueActivityService.recordActivity(
+                savedIssue,
+                resolveActivityTypeForStatus(status),
+                buildStatusActivityMessage(previousStatus, status, savedIssue),
+                getCurrentUserOrNull()
+        );
 
         realtimeEventService.publishIssueEvent(
                 resolveRealtimeEventType(status),
@@ -229,6 +252,121 @@ public class IssueService {
                     "Resolution evidence image is required before closure approval"
             );
         }
+    }
+
+    private void validateAdminCanDeleteIssue() {
+
+        Object principal =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication()
+                        .getPrincipal();
+
+        if (!(principal instanceof CustomUserDetails userDetails)) {
+            throw new RuntimeException("Invalid authenticated user");
+        }
+
+        User currentUser =
+                userRepository.findByEmail(userDetails.getUsername())
+                        .orElseThrow(() ->
+                                new RuntimeException("Authenticated user not found")
+                        );
+
+        boolean canDeleteIssue =
+                currentUser.getRole() == UserRole.ADMIN ||
+                        currentUser.getRole() == UserRole.SUPERVISOR ||
+                        currentUser.getRole() == UserRole.OFFICER;
+
+        if (!canDeleteIssue) {
+            throw new RuntimeException(
+                    "Only admin, supervisor, or officer can delete issues"
+            );
+        }
+    }
+
+    private void validateAdminCanEscalateIssue(Issue issue) {
+
+        Object principal =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication()
+                        .getPrincipal();
+
+        if (!(principal instanceof CustomUserDetails userDetails)) {
+            throw new RuntimeException("Invalid authenticated user");
+        }
+
+        User currentUser =
+                userRepository.findByEmail(userDetails.getUsername())
+                        .orElseThrow(() ->
+                                new RuntimeException("Authenticated user not found")
+                        );
+
+        boolean canEscalateIssue =
+                currentUser.getRole() == UserRole.ADMIN ||
+                        currentUser.getRole() == UserRole.SUPERVISOR ||
+                        currentUser.getRole() == UserRole.OFFICER;
+
+        if (!canEscalateIssue) {
+            throw new RuntimeException(
+                    "Only admin, supervisor, or officer can escalate issues"
+            );
+        }
+
+        if (
+                issue.getStatus() == IssueStatus.RESOLVED ||
+                        issue.getStatus() == IssueStatus.REJECTED
+        ) {
+            throw new RuntimeException(
+                    "Resolved or rejected issues cannot be escalated"
+            );
+        }
+
+        if (
+                issue.getStatus() != IssueStatus.ASSIGNED &&
+                        issue.getStatus() != IssueStatus.IN_PROGRESS &&
+                        issue.getStatus() != IssueStatus.PENDING_CLOSURE
+        ) {
+            throw new RuntimeException(
+                    "Only assigned, in-progress, or pending-closure issues can be escalated"
+            );
+        }
+
+        if (issue.getAssignedTo() == null) {
+            throw new RuntimeException(
+                    "Only assigned issues can be escalated"
+            );
+        }
+    }
+
+    private boolean isSlaActive(Issue issue) {
+
+        if (issue == null || issue.getStatus() == null) {
+            return false;
+        }
+
+        return issue.getStatus() == IssueStatus.ASSIGNED ||
+                issue.getStatus() == IssueStatus.IN_PROGRESS ||
+                issue.getStatus() == IssueStatus.PENDING_CLOSURE;
+    }
+
+    private boolean isSlaBreached(Issue issue) {
+
+        if (issue == null) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(issue.getSlaBreached())) {
+            return true;
+        }
+
+        if (!isSlaActive(issue)) {
+            return false;
+        }
+
+        LocalDateTime deadline = issue.getSlaDeadline();
+
+        return deadline != null && LocalDateTime.now().isAfter(deadline);
     }
 
     private void validateWorkerCanStartWork(Issue issue) {
@@ -319,6 +457,7 @@ public class IssueService {
         issue.setAssignedAt(LocalDateTime.now());
         issue.setSlaDeadline(calculateSlaDeadline(issue));
         issue.setSlaBreached(false);
+        clearEscalationDetails(issue);
         issue.setStatus(IssueStatus.ASSIGNED);
         issue.setUpdatedAt(LocalDateTime.now());
 
@@ -327,6 +466,14 @@ public class IssueService {
         issue.setRejectedAt(null);
 
         Issue savedIssue = issueRepository.save(issue);
+
+        issueActivityService.recordActivity(
+                savedIssue,
+                IssueActivityType.ISSUE_ASSIGNED,
+                "Issue assigned to " + safeUserName(worker) +
+                        " under " + formatDepartmentLabel(department),
+                getCurrentUserOrNull()
+        );
 
         realtimeEventService.publishIssueEvent(
                 RealtimeEventType.ISSUE_ASSIGNED,
@@ -351,7 +498,7 @@ public class IssueService {
         issue.setStatus(IssueStatus.PENDING_CLOSURE);
         issue.setResolutionNotes(resolutionNotes);
         issue.setResolvedAt(LocalDateTime.now());
-        issue.setSlaBreached(false);
+        issue.setSlaBreached(isSlaBreached(issue));
 
         issue.setRejectionReason(null);
         issue.setRejectionNotes(null);
@@ -384,6 +531,13 @@ public class IssueService {
         issue.setUpdatedAt(LocalDateTime.now());
 
         Issue savedIssue = issueRepository.save(issue);
+
+        issueActivityService.recordActivity(
+                savedIssue,
+                IssueActivityType.CLOSURE_SUBMITTED,
+                "Resolution evidence submitted for admin review",
+                getCurrentUserOrNull()
+        );
 
         realtimeEventService.publishIssueEvent(
                 RealtimeEventType.ISSUE_PENDING_CLOSURE,
@@ -450,6 +604,13 @@ public class IssueService {
         Issue updated =
                 enrichDuplicateLikelihood(issue);
 
+        issueActivityService.recordActivity(
+                updated,
+                IssueActivityType.AI_ANALYSIS_COMPLETED,
+                "AI duplicate analysis refreshed",
+                null
+        );
+
         realtimeEventService.publishIssueEvent(
                 RealtimeEventType.ISSUE_UPDATED,
                 updated
@@ -458,7 +619,10 @@ public class IssueService {
         return updated;
     }
 
+    @Transactional
     public void deleteIssue(UUID id) {
+
+        validateAdminCanDeleteIssue();
 
         Issue issue = issueRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Issue not found"));
@@ -466,6 +630,62 @@ public class IssueService {
         issueRepository.delete(issue);
 
         realtimeEventService.publishIssueDeleted(id);
+    }
+
+
+@Transactional
+    public IssueResponse escalateIssue(
+            UUID issueId,
+            EscalateIssueRequest request
+    ) {
+
+        Issue issue = issueRepository.findById(issueId)
+                .orElseThrow(() -> new RuntimeException("Issue not found"));
+
+        validateAdminCanEscalateIssue(issue);
+
+        User currentUser =
+                getCurrentUserOrNull();
+
+        EscalationReason reason =
+                request == null || request.getReason() == null
+                        ? EscalationReason.SLA_BREACHED
+                        : request.getReason();
+
+        String notes =
+                request == null
+                        ? null
+                        : sanitizeOptionalText(request.getNotes());
+
+        String escalationLevel =
+                request == null || request.getEscalationLevel() == null ||
+                        request.getEscalationLevel().isBlank()
+                        ? "LEVEL_1"
+                        : request.getEscalationLevel().trim();
+
+        issue.setSlaBreached(true);
+        issue.setEscalationReason(reason);
+        issue.setEscalationNotes(notes);
+        issue.setEscalatedAt(LocalDateTime.now());
+        issue.setEscalatedBy(currentUser);
+        issue.setEscalationLevel(escalationLevel);
+        issue.setUpdatedAt(LocalDateTime.now());
+
+        Issue savedIssue = issueRepository.save(issue);
+
+        issueActivityService.recordActivity(
+                savedIssue,
+                IssueActivityType.ISSUE_ESCALATED,
+                buildEscalationActivityMessage(reason, notes, escalationLevel),
+                currentUser
+        );
+
+        realtimeEventService.publishIssueEvent(
+                RealtimeEventType.ISSUE_ESCALATED,
+                savedIssue
+        );
+
+        return mapToDetailedResponse(savedIssue);
     }
 
     public PaginatedResponse<IssueListResponse> getIssues(
@@ -643,6 +863,15 @@ public class IssueService {
         return mapToDetailedResponse(issue);
     }
 
+    public List<IssueActivityResponse> getIssueTimeline(UUID id) {
+
+        if (!issueRepository.existsById(id)) {
+            throw new RuntimeException("Issue not found");
+        }
+
+        return issueActivityService.getTimeline(id);
+    }
+
     public List<IssueMapResponse> getNearbyIssues(
             double lat,
             double lng,
@@ -683,7 +912,16 @@ public class IssueService {
                         .assignedDepartment(formatDepartment(issue.getAssignedDepartment()))
                         .assignedAt(issue.getAssignedAt())
                         .slaDeadline(issue.getSlaDeadline())
-                        .slaBreached(Boolean.TRUE.equals(issue.getSlaBreached()))
+                        .slaBreached(isSlaBreached(issue))
+                        .escalationReason(
+                                issue.getEscalationReason() == null
+                                        ? null
+                                        : issue.getEscalationReason().name()
+                        )
+                        .escalationNotes(issue.getEscalationNotes())
+                        .escalatedAt(issue.getEscalatedAt())
+                        .escalatedBy(mapUserSummary(issue.getEscalatedBy()))
+                        .escalationLevel(issue.getEscalationLevel())
                         .build()
                 )
                 .toList();
@@ -715,6 +953,13 @@ public class IssueService {
 
         issueMediaRepository.save(media);
 
+        issueActivityService.recordActivity(
+                issue,
+                IssueActivityType.IMAGE_UPLOADED,
+                "Issue image uploaded and queued for AI processing",
+                getCurrentUserOrNull()
+        );
+
         issueEventProducer.publishImageUploaded(
                 IssueImageUploadedEvent.builder()
                         .issueId(issue.getId())
@@ -724,6 +969,165 @@ public class IssueService {
         );
 
         return "Image uploaded, AI processing queued";
+    }
+
+
+    private IssueActivityType resolveActivityTypeForStatus(IssueStatus status) {
+
+        if (status == IssueStatus.VERIFIED) {
+            return IssueActivityType.ISSUE_VERIFIED;
+        }
+
+        if (status == IssueStatus.REJECTED) {
+            return IssueActivityType.ISSUE_REJECTED;
+        }
+
+        if (status == IssueStatus.IN_PROGRESS) {
+            return IssueActivityType.WORK_STARTED;
+        }
+
+        if (status == IssueStatus.RESOLVED) {
+            return IssueActivityType.CLOSURE_APPROVED;
+        }
+
+        return IssueActivityType.STATUS_CHANGED;
+    }
+
+    private String buildStatusActivityMessage(
+            IssueStatus previousStatus,
+            IssueStatus newStatus,
+            Issue issue
+    ) {
+
+        if (newStatus == IssueStatus.VERIFIED) {
+            return "Issue verified by operations team";
+        }
+
+        if (newStatus == IssueStatus.REJECTED) {
+            String reason =
+                    issue.getRejectionReason() == null
+                            ? "unspecified reason"
+                            : issue.getRejectionReason().name().replace("_", " ");
+
+            return "Issue rejected: " + reason;
+        }
+
+        if (newStatus == IssueStatus.IN_PROGRESS) {
+            return "Worker started work on this issue";
+        }
+
+        if (newStatus == IssueStatus.RESOLVED) {
+            return "Closure approved after reviewing resolution evidence";
+        }
+
+        return "Status changed from " +
+                formatStatusLabel(previousStatus) +
+                " to " +
+                formatStatusLabel(newStatus);
+    }
+
+    private User getCurrentUserOrNull() {
+
+        Object principal =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication()
+                        .getPrincipal();
+
+        if (!(principal instanceof CustomUserDetails userDetails)) {
+            return null;
+        }
+
+        return userRepository.findByEmail(userDetails.getUsername())
+                .orElse(null);
+    }
+
+    private String safeUserName(User user) {
+
+        if (user == null) {
+            return "System";
+        }
+
+        if (user.getName() != null && !user.getName().isBlank()) {
+            return user.getName();
+        }
+
+        return user.getEmail() == null ? "User" : user.getEmail();
+    }
+
+    private String formatDepartmentLabel(Department department) {
+
+        if (department == null) {
+            return "Unassigned Department";
+        }
+
+        return department.name().replace("_", " ");
+    }
+
+    private String formatStatusLabel(IssueStatus status) {
+
+        if (status == null) {
+            return "UNKNOWN";
+        }
+
+        return status.name().replace("_", " ");
+    }
+
+
+    private String sanitizeOptionalText(String value) {
+
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed =
+                value.trim();
+
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private void clearEscalationDetails(Issue issue) {
+
+        if (issue == null) {
+            return;
+        }
+
+        issue.setEscalationReason(null);
+        issue.setEscalationNotes(null);
+        issue.setEscalatedAt(null);
+        issue.setEscalatedBy(null);
+        issue.setEscalationLevel(null);
+    }
+
+    private String buildEscalationActivityMessage(
+            EscalationReason reason,
+            String notes,
+            String escalationLevel
+    ) {
+
+        String reasonLabel =
+                reason == null
+                        ? "SLA BREACHED"
+                        : reason.name().replace("_", " ");
+
+        String level =
+                escalationLevel == null || escalationLevel.isBlank()
+                        ? "LEVEL_1"
+                        : escalationLevel;
+
+        StringBuilder message =
+                new StringBuilder()
+                        .append("Issue escalated")
+                        .append(" · Reason: ")
+                        .append(reasonLabel)
+                        .append(" · Level: ")
+                        .append(level);
+
+        if (notes != null && !notes.isBlank()) {
+            message.append(" · Notes: ").append(notes);
+        }
+
+        return message.toString();
     }
 
     private LocalDateTime calculateSlaDeadline(Issue issue) {
@@ -1198,7 +1602,16 @@ public class IssueService {
                 .assignedDepartment(formatDepartment(issue.getAssignedDepartment()))
                 .assignedAt(issue.getAssignedAt())
                 .slaDeadline(issue.getSlaDeadline())
-                .slaBreached(Boolean.TRUE.equals(issue.getSlaBreached()))
+                .slaBreached(isSlaBreached(issue))
+                .escalationReason(
+                        issue.getEscalationReason() == null
+                                ? null
+                                : issue.getEscalationReason().name()
+                )
+                .escalationNotes(issue.getEscalationNotes())
+                .escalatedAt(issue.getEscalatedAt())
+                .escalatedBy(mapUserSummary(issue.getEscalatedBy()))
+                .escalationLevel(issue.getEscalationLevel())
                 .build();
     }
 
@@ -1232,6 +1645,15 @@ public class IssueService {
                 .slaBreached(
                         Boolean.TRUE.equals(issue.getSlaBreached())
                 )
+                .escalationReason(
+                        issue.getEscalationReason() == null
+                                ? null
+                                : issue.getEscalationReason().name()
+                )
+                .escalationNotes(issue.getEscalationNotes())
+                .escalatedAt(issue.getEscalatedAt())
+                .escalatedBy(mapUserSummary(issue.getEscalatedBy()))
+                .escalationLevel(issue.getEscalationLevel())
                 .createdAt(issue.getCreatedAt())
                 .updatedAt(issue.getUpdatedAt())
                 .imageUrl(
