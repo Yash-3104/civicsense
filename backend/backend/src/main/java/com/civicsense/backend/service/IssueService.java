@@ -66,6 +66,7 @@ public class IssueService {
     private final RealtimeEventService realtimeEventService;
     private final AiServiceClient aiServiceClient;
     private final IssueActivityService issueActivityService;
+    private final WorkerService workerService;
 
     public IssueResponse createIssue(CreateIssueRequest request) {
 
@@ -452,6 +453,12 @@ public class IssueService {
             );
         }
 
+        if (!workerService.workerBelongsToDepartment(worker.getId(), department)) {
+            throw new RuntimeException(
+                    "Selected worker is not mapped to the selected department"
+            );
+        }
+
         issue.setAssignedTo(worker);
         issue.setAssignedDepartment(department);
         issue.setAssignedAt(LocalDateTime.now());
@@ -755,13 +762,6 @@ public class IssueService {
                     "Only workers, officers, or supervisors can access worker dashboard"
             );
         }
-
-        System.out.println(
-                "WORKER DASHBOARD AUTH USER => " +
-                        currentWorker.getEmail() +
-                        " | " +
-                        currentWorker.getId()
-        );
 
         return getAssignedIssuesByWorker(
                 currentWorker.getId()

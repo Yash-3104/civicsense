@@ -14,6 +14,8 @@ import java.util.UUID;
 public interface IssueRepository extends JpaRepository<Issue, UUID>,
         JpaSpecificationExecutor<Issue> {
 
+    List<Issue> findByReportedByIdOrderByCreatedAtDesc(UUID reportedById);
+
     // ================= GEO QUERY =================
     @Query(value = """
         SELECT * FROM issues i

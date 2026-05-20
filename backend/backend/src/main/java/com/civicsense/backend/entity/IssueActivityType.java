@@ -13,5 +13,6 @@ public enum IssueActivityType {
     CLOSURE_APPROVED,
     ISSUE_SENT_BACK,
     ISSUE_ESCALATED,
+    SUPERVISOR_NOTE,
     ISSUE_DELETED
 }

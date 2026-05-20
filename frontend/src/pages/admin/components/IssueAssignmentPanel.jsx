@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +9,7 @@ function formatDepartmentLabel(value) {
     return "Not assigned";
   }
 
-  return value
+  return String(value)
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
@@ -27,6 +28,18 @@ function formatDate(value) {
   } catch {
     return value;
   }
+}
+
+function formatWorkerDepartments(worker) {
+  const departments = Array.isArray(worker?.departments)
+    ? worker.departments
+    : [];
+
+  if (departments.length === 0) {
+    return "No mapped departments";
+  }
+
+  return departments.map(formatDepartmentLabel).join(", ");
 }
 
 export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
@@ -61,15 +74,17 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
     },
     enabled: Boolean(category) && isAdmin && !isAssigned,
     retry: 1,
+    staleTime: 1000 * 60,
   });
 
   const {
     data: workers = [],
     isLoading: workersLoading,
+    isFetching: workersFetching,
     isError: workersError,
     error: workersErrorObject,
   } = useQuery({
-    queryKey: ["workers", selectedDepartment],
+    queryKey: ["workers", "by-department", selectedDepartment],
     queryFn: async () => {
       if (!selectedDepartment) {
         return [];
@@ -83,6 +98,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
     },
     enabled: isAdmin && !isAssigned && Boolean(selectedDepartment),
     retry: 1,
+    staleTime: 1000 * 30,
   });
 
   useEffect(() => {
@@ -133,46 +149,33 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
       const workerName =
         assignedIssue?.assignedTo?.name || selectedWorker?.name || "worker";
 
-      toast.success(`Issue assigned to ${workerName}`);
-
-      queryClient.invalidateQueries({
-        queryKey: ["issues"],
+      toast.success(`Issue assigned to ${workerName}`, {
+        description: `${formatDepartmentLabel(
+          assignedIssue?.assignedDepartment || selectedDepartment
+        )} mapping verified.`,
       });
 
-      queryClient.invalidateQueries({
-        queryKey: ["nearby-issues"],
-      });
-
-      queryClient.invalidateQueries({
-        queryKey: ["workers"],
-        exact: false,
-      });
-
-      queryClient.invalidateQueries({
-        queryKey: ["worker-issues"],
-        exact: false,
-      });
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: ["nearby-issues"] });
+      queryClient.invalidateQueries({ queryKey: ["workers"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["worker-issues"], exact: false });
 
       if (issue?.id) {
-        queryClient.invalidateQueries({
-          queryKey: ["issue-detail"],
-          exact: false,
-        });
-
-        queryClient.invalidateQueries({
-          queryKey: ["admin-issue-detail", issue.id],
-        });
+        queryClient.invalidateQueries({ queryKey: ["issue-detail"], exact: false });
+        queryClient.invalidateQueries({ queryKey: ["admin-issue-detail", issue.id] });
+        queryClient.invalidateQueries({ queryKey: ["issue-timeline", issue.id] });
       }
     },
 
     onError: (error) => {
       console.error("Assignment failed", error);
 
-      toast.error(
-        error?.response?.data?.message ||
+      toast.error("Failed to assign issue", {
+        description:
+          error?.response?.data?.message ||
           error?.response?.data ||
-          "Failed to assign issue"
-      );
+          "Check worker-department mapping and try again.",
+      });
     },
   });
 
@@ -187,9 +190,15 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
   return (
     <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-          Operational Assignment
-        </h3>
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+            Operational Assignment
+          </h3>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Workers are filtered using Worker Department Mapping V2.
+          </p>
+        </div>
 
         {isAssigned ? (
           <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-300">
@@ -248,8 +257,8 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
                 error: {workersErrorObject?.response?.status || "none"}
               </p>
               <p className="mt-1">
-                Log out, log in again as admin, and confirm the backend allows
-                department routes.
+                Check that Worker Department Mapping V2 SQL has been run and
+                that `/api/workers/by-department/{department}` returns mapped workers.
               </p>
             </div>
           )}
@@ -288,9 +297,15 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">
-              Worker
-            </label>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <label className="block text-xs font-medium text-slate-400">
+                Worker
+              </label>
+
+              {workersFetching && (
+                <span className="text-[11px] text-slate-500">Syncing</span>
+              )}
+            </div>
 
             <select
               value={selectedWorkerId}
@@ -299,7 +314,7 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-500"
             >
               <option value="">
-                {workersLoading ? "Loading workers..." : "Select worker"}
+                {workersLoading ? "Loading mapped workers..." : "Select mapped worker"}
               </option>
 
               {workers.map((worker) => (
@@ -313,10 +328,43 @@ export default function IssueAssignmentPanel({ issue, isAdmin = false }) {
               selectedDepartment &&
               workers.length === 0 &&
               !workersError && (
-                <p className="mt-1 text-xs text-amber-300">
-                  No assignable workers found for this department.
-                </p>
+                <div className="mt-2 rounded-lg border border-amber-900/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
+                  No workers are mapped to{" "}
+                  <span className="font-semibold">
+                    {formatDepartmentLabel(selectedDepartment)}
+                  </span>
+                  . Add a mapping in the database or Staff Management later.
+                </div>
               )}
+
+            {selectedWorker && (
+              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {selectedWorker.name}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {selectedWorker.email || "No email returned"} ·{" "}
+                      {selectedWorker.role}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border border-cyan-900/70 bg-cyan-950/30 px-2.5 py-1 text-[11px] font-medium text-cyan-300">
+                    Mapped
+                  </span>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Department mappings
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    {formatWorkerDepartments(selectedWorker)}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {isAdmin && (

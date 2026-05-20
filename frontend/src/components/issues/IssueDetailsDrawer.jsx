@@ -403,6 +403,13 @@ function getActivityStyle(type) {
         badge: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
       };
 
+    case "SUPERVISOR_NOTE":
+      return {
+        dot: "bg-orange-500",
+        border: "border-orange-200 dark:border-orange-900/60",
+        badge: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300",
+      };
+
     case "ISSUE_ESCALATED":
       return {
         dot: "bg-orange-500",
@@ -557,6 +564,8 @@ export default function IssueDetailsDrawer({
   getDisplayArea = () => "Pune area",
   isAdmin = false,
   isWorker = false,
+  isSupervisor = false,
+  canAddSupervisorNote = false,
   actions = null,
 }) {
   const reasoningItems = parseAiReasoning(issue?.aiReasoning);
@@ -570,6 +579,52 @@ export default function IssueDetailsDrawer({
   const [escalationReason, setEscalationReason] = useState("SLA_BREACHED");
   const [escalationLevel, setEscalationLevel] = useState("LEVEL_1");
   const [escalationNotes, setEscalationNotes] = useState("");
+  const [supervisorNote, setSupervisorNote] = useState("");
+
+
+  const addSupervisorNoteMutation = useMutation({
+    mutationFn: async () => {
+      if (!issue?.id) {
+        throw new Error("Issue ID is missing");
+      }
+
+      const note = supervisorNote.trim();
+
+      if (!note) {
+        throw new Error("Supervisor note is required");
+      }
+
+      const response = await API.post(
+        `/api/supervisor/issues/${issue.id}/note`,
+        { note }
+      );
+
+      return response.data;
+    },
+
+    onSuccess: () => {
+      toast.success("Supervisor note added", {
+        description: "The note was recorded in the issue timeline.",
+      });
+
+      setSupervisorNote("");
+
+      queryClient.invalidateQueries({ queryKey: ["issue-timeline", issue?.id] });
+      queryClient.invalidateQueries({ queryKey: ["supervisor-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["supervisor-issue-detail", issue?.id] });
+    },
+
+    onError: (error) => {
+      console.error("Failed to add supervisor note", error);
+      toast.error("Failed to add supervisor note", {
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data ||
+          error?.message ||
+          "Check supervisor department access and try again.",
+      });
+    },
+  });
 
   const updateStatusMutation = useMutation({
     mutationFn: async (payload) => {
@@ -1353,6 +1408,43 @@ export default function IssueDetailsDrawer({
               </div>
             </section>
 
+
+            {canAddSupervisorNote && issue && (
+              <section className="rounded-2xl border border-orange-200 bg-orange-50/80 p-4 shadow-sm dark:border-orange-900/70 dark:bg-orange-950/20">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-orange-900 dark:text-orange-200">
+                    Supervisor Note
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-orange-700 dark:text-orange-300">
+                    Add operational context for this issue. Notes are saved in the issue timeline audit trail.
+                  </p>
+                </div>
+
+                <textarea
+                  value={supervisorNote}
+                  onChange={(event) => setSupervisorNote(event.target.value)}
+                  rows={4}
+                  placeholder="Example: Please prioritize this because repeated complaints were received near a school route."
+                  className="w-full resize-none rounded-xl border border-orange-200 bg-white/90 px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-500 dark:border-orange-900/60 dark:bg-[#111111] dark:text-slate-100 dark:placeholder:text-slate-600"
+                />
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-xs text-orange-700/80 dark:text-orange-300/80">
+                    Timeline event type: SUPERVISOR_NOTE
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => addSupervisorNoteMutation.mutate()}
+                    disabled={addSupervisorNoteMutation.isPending || !supervisorNote.trim()}
+                    className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {addSupervisorNoteMutation.isPending ? "Adding..." : "Add Note"}
+                  </button>
+                </div>
+              </section>
+            )}
+
             <IssueTimelineSection issue={issue} />
 
             {isWorker && issue && (
@@ -1731,3 +1823,4 @@ export default function IssueDetailsDrawer({
     </div>
   );
 }
+

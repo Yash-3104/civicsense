@@ -19,7 +19,7 @@ function getDashboardPath(role) {
       return "/worker";
 
     case "SUPERVISOR":
-      return "/admin";
+      return "/supervisor";
 
     case "OFFICER":
       return "/admin";

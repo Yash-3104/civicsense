@@ -755,6 +755,612 @@ async function fetchIssueDetail({ queryKey }) {
   return res.data;
 }
 
+async function fetchCitizenReports() {
+  const res = await API.get("/api/citizen/my-reports");
+  return res.data || [];
+}
+
+async function fetchCitizenReportDetail({ queryKey }) {
+  const [_key, reportId] = queryKey;
+  const res = await API.get(`/api/citizen/my-reports/${reportId}`);
+  return res.data;
+}
+
+
+function getCitizenStatusStyle(status) {
+  switch (status) {
+    case "RESOLVED":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
+
+    case "REJECTED":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300";
+
+    case "PENDING_CLOSURE":
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
+
+    case "IN_PROGRESS":
+      return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-900 dark:bg-purple-950/40 dark:text-purple-300";
+
+    case "ASSIGNED":
+      return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300";
+
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300";
+  }
+}
+
+function getCitizenSlaStyle(slaStatus) {
+  switch (slaStatus) {
+    case "RESOLVED":
+    case "ON_TRACK":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300";
+
+    case "DUE_SOON":
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
+
+    case "DELAYED":
+      return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300";
+
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-300";
+  }
+}
+
+function formatCitizenStatus(status, label) {
+  return label || status?.replaceAll("_", " ") || "Submitted";
+}
+
+function formatCitizenSlaStatus(slaStatus) {
+  if (!slaStatus) return "Not started";
+
+  return String(slaStatus)
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function CitizenReportCard({ report, isSelected, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-md border p-3 text-left transition-colors ${
+        isSelected
+          ? "border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-[#222222]"
+          : "border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-[#2a2a2a] dark:bg-[#101010] dark:hover:bg-[#1d1d1d]"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-medium text-slate-950 dark:text-slate-100">
+            {report.title}
+          </h3>
+
+          <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+            {report.address || "Selected from map"}
+          </p>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${getCitizenStatusStyle(
+            report.status
+          )}`}
+        >
+          {formatCitizenStatus(report.status, report.citizenStatusLabel)}
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        <span
+          className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${getCitizenSlaStyle(
+            report.slaStatus
+          )}`}
+        >
+          {formatCitizenSlaStatus(report.slaStatus)}
+        </span>
+
+        {report.status === "REJECTED" && (
+          <span className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {report.rejectionReasonLabel || "Rejected"}
+          </span>
+        )}
+
+        {report.resolutionImageUrl && (
+          <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+            Proof
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function CitizenInfoBox({ label, value, tone = "default" }) {
+  const toneClass = {
+    default:
+      "border-slate-200 bg-slate-50 text-slate-800 dark:border-[#2a2a2a] dark:bg-[#101010] dark:text-slate-200",
+    green:
+      "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
+    amber:
+      "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
+    red:
+      "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
+  }[tone];
+
+  return (
+    <div className={`rounded-md border p-3 ${toneClass}`}>
+      <p className="text-[11px] uppercase tracking-wide opacity-70">{label}</p>
+      <p className="mt-1 text-sm font-semibold">{value || "Not available"}</p>
+    </div>
+  );
+}
+
+function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-sm text-slate-500 dark:text-slate-400">
+        Loading your report...
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+        <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">My Report</h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Report details unavailable.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-[#222222] dark:hover:text-slate-100"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const beforeImage = report.imageUrl || report.mediaUrls?.[0];
+  const afterImage = report.resolutionImageUrl;
+  const isResolved = report.status === "RESOLVED" || Boolean(report.resolvedAt);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold">My Report</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {isFetching ? "Refreshing..." : "Citizen tracking view"}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-md px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-[#222222] dark:hover:text-slate-100"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="space-y-4 pb-6">
+          <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
+            <div className="flex flex-wrap gap-2">
+              <span
+                className={`rounded-md border px-2 py-1 text-xs font-medium ${getCitizenStatusStyle(
+                  report.status
+                )}`}
+              >
+                {formatCitizenStatus(report.status, report.citizenStatusLabel)}
+              </span>
+
+              <span
+                className={`rounded-md border px-2 py-1 text-xs font-medium ${getCitizenSlaStyle(
+                  report.slaStatus
+                )}`}
+              >
+                {formatCitizenSlaStatus(report.slaStatus)}
+              </span>
+
+              {report.category && (
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300">
+                  {categoryLabels[report.category] || report.category}
+                </span>
+              )}
+            </div>
+
+            <h3 className="mt-3 text-lg font-semibold text-slate-950 dark:text-slate-100">
+              {report.title}
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              {report.description || "No description provided."}
+            </p>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3">
+            <CitizenInfoBox label="Reported" value={formatDate(report.createdAt)} />
+            <CitizenInfoBox label="Last Updated" value={formatDate(report.updatedAt)} />
+            <CitizenInfoBox
+              label="Department"
+              value={report.assignedDepartment?.replaceAll("_", " ")}
+            />
+            <CitizenInfoBox label="SLA Deadline" value={formatDate(report.slaDeadline)} />
+          </section>
+
+          <section className={`rounded-md border p-4 ${getCitizenSlaStyle(report.slaStatus)}`}>
+            <p className="text-sm font-semibold">SLA Status</p>
+            <p className="mt-1 text-sm leading-6">
+              {report.slaMessage || "SLA status is currently unavailable."}
+            </p>
+          </section>
+
+          {report.status === "REJECTED" && (
+            <section className="rounded-md border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              <p className="text-sm font-semibold">Rejection Reason</p>
+              <p className="mt-1 text-sm">
+                {report.rejectionReasonLabel || report.rejectionReason || "Rejected"}
+              </p>
+
+              {report.rejectionNotes && (
+                <p className="mt-2 text-sm leading-6">{report.rejectionNotes}</p>
+              )}
+
+              <p className="mt-2 text-xs opacity-80">
+                Rejected at: {formatDate(report.rejectedAt)}
+              </p>
+            </section>
+          )}
+
+          {(beforeImage || afterImage) && (
+            <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {isResolved ? "Before & After Evidence" : "Report Evidence"}
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {isResolved
+                    ? "Original report image and resolution proof when available."
+                    : "Original image attached to your report."}
+                </p>
+              </div>
+
+              <div
+                className={`grid gap-3 ${
+                  beforeImage && afterImage ? "grid-cols-2" : "grid-cols-1"
+                }`}
+              >
+                {beforeImage && (
+                  <div className="overflow-hidden rounded-md border border-slate-200 dark:border-[#2a2a2a]">
+                    <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-[#2a2a2a] dark:text-slate-300">
+                      Before
+                    </div>
+
+                    <img
+                      src={beforeImage}
+                      alt={`${report.title} before evidence`}
+                      className="h-48 w-full bg-black object-contain"
+                    />
+                  </div>
+                )}
+
+                {afterImage && (
+                  <div className="overflow-hidden rounded-md border border-emerald-200 dark:border-emerald-900">
+                    <div className="border-b border-emerald-200 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:text-emerald-300">
+                      After
+                    </div>
+
+                    <img
+                      src={afterImage}
+                      alt={`${report.title} resolution proof`}
+                      className="h-48 w-full bg-black object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {(report.resolutionNotes || report.resolvedAt) && (
+            <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+              <p className="text-sm font-semibold">Resolution Evidence</p>
+
+              {report.resolutionNotes && (
+                <p className="mt-2 text-sm leading-6">{report.resolutionNotes}</p>
+              )}
+
+              <p className="mt-2 text-xs">
+                Resolved at: {formatDate(report.resolvedAt)}
+              </p>
+            </section>
+          )}
+
+          <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Status Timeline
+            </p>
+
+            <div className="mt-4 space-y-4">
+              {Array.isArray(report.timeline) && report.timeline.length > 0 ? (
+                report.timeline.map((item) => (
+                  <div key={item.id} className="relative pl-5">
+                    <span className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
+
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {item.title}
+                    </p>
+
+                    <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                      {item.message}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
+                      {formatDate(item.createdAt)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Timeline will appear as your report moves through verification and resolution.
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+function CitizenReportsWorkspace({
+  reports,
+  isLoading,
+  isFetching,
+  selectedReportId,
+  selectedReport,
+  isReportLoading,
+  isReportFetching,
+  onOpenReport,
+  onCloseReport,
+}) {
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredReports = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+
+    return reports.filter((report) => {
+      const matchesSearch =
+        !query ||
+        report.title?.toLowerCase().includes(query) ||
+        report.description?.toLowerCase().includes(query) ||
+        report.address?.toLowerCase().includes(query) ||
+        report.category?.toLowerCase().includes(query);
+
+      const matchesStatus =
+        statusFilter === "ALL" ||
+        (statusFilter === "ACTIVE" &&
+          ["REPORTED", "VERIFIED", "ASSIGNED", "IN_PROGRESS"].includes(
+            report.status
+          )) ||
+        report.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [reports, searchTerm, statusFilter]);
+
+  const resolvedCount = reports.filter((report) => report.status === "RESOLVED").length;
+  const rejectedCount = reports.filter((report) => report.status === "REJECTED").length;
+  const activeCount = reports.filter((report) =>
+    ["REPORTED", "VERIFIED", "ASSIGNED", "IN_PROGRESS"].includes(report.status)
+  ).length;
+  const pendingClosureCount = reports.filter(
+    (report) => report.status === "PENDING_CLOSURE"
+  ).length;
+
+  return (
+    <section className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_420px] gap-3 overflow-hidden p-3">
+      <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-md border border-slate-200 bg-white dark:border-[#2a2a2a] dark:bg-[#151515]">
+        <div className="border-b border-slate-200 px-5 py-4 dark:border-[#2a2a2a]">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                My Reports
+              </h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Track reports you created, review progress, SLA status, rejection details, and resolution evidence.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-[#2a2a2a] dark:bg-[#101010]">
+                <p className="text-xs text-slate-500 dark:text-slate-400">Total</p>
+                <p className="text-base font-semibold">{reports.length}</p>
+              </div>
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">
+                <p className="text-xs opacity-80">Active</p>
+                <p className="text-base font-semibold">{activeCount}</p>
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                <p className="text-xs opacity-80">Review</p>
+                <p className="text-base font-semibold">{pendingClosureCount}</p>
+              </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <p className="text-xs opacity-80">Resolved</p>
+                <p className="text-base font-semibold">{resolvedCount}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-b border-slate-200 px-5 py-3 dark:border-[#2a2a2a]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search your reports by title, description, address, or category..."
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-300 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className={selectClass}
+            >
+              <option value="ALL">All reports</option>
+              <option value="ACTIVE">Active</option>
+              <option value="PENDING_CLOSURE">Pending closure</option>
+              <option value="RESOLVED">Resolved</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="min-h-0 overflow-y-auto p-5 [scrollbar-gutter:stable]">
+          {isLoading ? (
+            <div className="rounded-md border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
+              Loading your reports...
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="rounded-md border border-dashed border-slate-300 p-8 text-center dark:border-[#333333]">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                No reports found
+              </p>
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                Try changing the filters, or create a new report from the Map tab.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {filteredReports.map((report) => (
+                <button
+                  key={report.id}
+                  type="button"
+                  onClick={() => onOpenReport(report.id)}
+                  className={`rounded-md border p-4 text-left transition-colors ${
+                    selectedReportId === report.id
+                      ? "border-slate-400 bg-slate-100 dark:border-slate-600 dark:bg-[#222222]"
+                      : "border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-[#2a2a2a] dark:bg-[#101010] dark:hover:bg-[#1d1d1d]"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="line-clamp-2 text-sm font-semibold text-slate-950 dark:text-slate-100">
+                        {report.title}
+                      </h3>
+
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                        {report.description || "No description provided."}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${getCitizenStatusStyle(
+                        report.status
+                      )}`}
+                    >
+                      {formatCitizenStatus(report.status, report.citizenStatusLabel)}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span
+                      className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${getCitizenSlaStyle(
+                        report.slaStatus
+                      )}`}
+                    >
+                      {formatCitizenSlaStatus(report.slaStatus)}
+                    </span>
+
+                    {report.category && (
+                      <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300">
+                        {categoryLabels[report.category] || report.category}
+                      </span>
+                    )}
+
+                    {report.status === "REJECTED" && (
+                      <span className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                        {report.rejectionReasonLabel || "Rejected"}
+                      </span>
+                    )}
+
+                    {report.resolutionImageUrl && (
+                      <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        Resolution proof
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex items-end justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="min-w-0 truncate">
+                      {report.address || "Selected from map"}
+                    </span>
+
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {report.updatedAt ? "Updated" : "Created"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        {formatDate(report.updatedAt || report.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <aside className="h-full min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white dark:border-[#2a2a2a] dark:bg-[#151515]">
+        {selectedReportId ? (
+          <CitizenReportDrawer
+            report={selectedReport}
+            isLoading={isReportLoading}
+            isFetching={isReportFetching}
+            onClose={onCloseReport}
+          />
+        ) : (
+          <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+            <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
+              <h2 className="text-sm font-semibold">Report details</h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Select a report to inspect timeline, SLA status, rejection reason, or resolution evidence.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center p-6 text-center">
+              <div>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  No report selected
+                </p>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  Choose any report from the registry.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
+    </section>
+  );
+}
+
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
@@ -769,8 +1375,10 @@ export default function Dashboard() {
   const [mapBounds, setMapBounds] = useState(null);
   const [filter, setFilter] = useState({ category: "", severity: "" });
 
+  const [activeSidebarTab, setActiveSidebarTab] = useState("map");
   const [drawerMode, setDrawerMode] = useState("empty");
   const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [selectedCitizenReportId, setSelectedCitizenReportId] = useState(null);
   const [selectedLocation, setSelectedLocation] = useState(null);
 
   const [form, setForm] = useState({
@@ -847,6 +1455,31 @@ export default function Dashboard() {
       drawerMode === "detail" &&
       Boolean(possibleDuplicateIssueId) &&
       possibleDuplicateIssueId !== selectedIssueId,
+    staleTime: 1000 * 30,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const {
+    data: myReports = [],
+    isLoading: isMyReportsLoading,
+    isFetching: isMyReportsFetching,
+  } = useQuery({
+    queryKey: ["citizen-my-reports"],
+    queryFn: fetchCitizenReports,
+    staleTime: 1000 * 30,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const {
+    data: selectedCitizenReport,
+    isLoading: isCitizenReportLoading,
+    isFetching: isCitizenReportFetching,
+  } = useQuery({
+    queryKey: ["citizen-my-report", selectedCitizenReportId],
+    queryFn: fetchCitizenReportDetail,
+    enabled: drawerMode === "my-report" && Boolean(selectedCitizenReportId),
     staleTime: 1000 * 30,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -971,6 +1604,7 @@ export default function Dashboard() {
           if (activeIssueId === eventIssueId) {
             setDrawerMode("empty");
             setSelectedIssueId(null);
+            setSelectedCitizenReportId(null);
             setSelectedLocation(null);
           }
         }
@@ -978,6 +1612,10 @@ export default function Dashboard() {
         await queryClient.invalidateQueries({
           queryKey: ["nearby-issues"],
           exact: false,
+        });
+
+        await queryClient.invalidateQueries({
+          queryKey: ["citizen-my-reports"],
         });
 
         // Also invalidate admin/moderation issue lists when this page is mounted.
@@ -1175,8 +1813,10 @@ export default function Dashboard() {
 
   const openCreateForm = (location) => {
     setActivePopupIssueId(null);
+    setActiveSidebarTab("map");
     setDrawerMode("create");
     setSelectedIssueId(null);
+    setSelectedCitizenReportId(null);
     setSelectedLocation(location);
     resetCreateForm();
   };
@@ -1184,6 +1824,7 @@ export default function Dashboard() {
   const closeCreateForm = () => {
     setDrawerMode("empty");
     setSelectedIssueId(null);
+    setSelectedCitizenReportId(null);
     setSelectedLocation(null);
     resetCreateForm();
   };
@@ -1193,8 +1834,10 @@ export default function Dashboard() {
       setActivePopupIssueId(issueId);
     }
 
+    setActiveSidebarTab("map");
     setDrawerMode("detail");
     setSelectedIssueId(issueId);
+    setSelectedCitizenReportId(null);
     setSelectedLocation(null);
     setImageFile(null);
     setIsSubmitting(false);
@@ -1217,7 +1860,42 @@ export default function Dashboard() {
   const closeIssueDetail = () => {
     setDrawerMode("empty");
     setSelectedIssueId(null);
+    setSelectedCitizenReportId(null);
     setActivePopupIssueId(null);
+  };
+
+  const openMapTab = () => {
+    setActiveSidebarTab("map");
+    setDrawerMode("empty");
+    setSelectedIssueId(null);
+    setSelectedCitizenReportId(null);
+    setSelectedLocation(null);
+    setActivePopupIssueId(null);
+  };
+
+  const openMyReportsTab = () => {
+    setActiveSidebarTab("my-reports");
+    setDrawerMode("empty");
+    setSelectedIssueId(null);
+    setSelectedCitizenReportId(null);
+    setSelectedLocation(null);
+    setActivePopupIssueId(null);
+  };
+
+  const openMyReport = (reportId) => {
+    if (!reportId) return;
+
+    setActiveSidebarTab("my-reports");
+    setDrawerMode("my-report");
+    setSelectedCitizenReportId(reportId);
+    setSelectedIssueId(null);
+    setSelectedLocation(null);
+    setActivePopupIssueId(null);
+  };
+
+  const closeMyReport = () => {
+    setDrawerMode("empty");
+    setSelectedCitizenReportId(null);
   };
 
   const handleOpenMatchedIssue = async (matchedIssue) => {
@@ -1262,6 +1940,7 @@ export default function Dashboard() {
   const refreshIssues = async () => {
     await queryClient.invalidateQueries({ queryKey: ["nearby-issues"] });
     await queryClient.invalidateQueries({ queryKey: ["issue-detail"] });
+    await queryClient.invalidateQueries({ queryKey: ["citizen-my-reports"] });
     await refetch();
   };
 
@@ -1462,26 +2141,31 @@ export default function Dashboard() {
               <nav className="space-y-1">
                 <button
                   type="button"
-                  className="flex h-9 w-full items-center rounded-md bg-slate-100 px-3 text-left text-sm font-medium text-slate-950 dark:bg-[#222222] dark:text-slate-100"
+                  onClick={openMapTab}
+                  className={`flex h-9 w-full items-center rounded-md px-3 text-left text-sm ${
+                    activeSidebarTab === "map"
+                      ? "bg-slate-100 font-medium text-slate-950 dark:bg-[#222222] dark:text-slate-100"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-[#1d1d1d] dark:hover:text-slate-100"
+                  }`}
                 >
                   Map
                 </button>
 
                 <button
                   type="button"
-                  className="flex h-9 w-full items-center rounded-md px-3 text-left text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-[#1d1d1d] dark:hover:text-slate-100"
+                  onClick={openMyReportsTab}
+                  className={`flex h-9 w-full items-center rounded-md px-3 text-left text-sm ${
+                    activeSidebarTab === "my-reports"
+                      ? "bg-slate-100 font-medium text-slate-950 dark:bg-[#222222] dark:text-slate-100"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-[#1d1d1d] dark:hover:text-slate-100"
+                  }`}
                 >
-                  Issues
-                </button>
-
-                <button
-                  type="button"
-                  className="flex h-9 w-full items-center rounded-md px-3 text-left text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-[#1d1d1d] dark:hover:text-slate-100"
-                >
-                  Reports
+                  My Reports
                 </button>
               </nav>
 
+              {activeSidebarTab === "map" ? (
+                <>
               <div className="mt-6 border-t border-slate-200 pt-4 dark:border-[#2a2a2a]">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Filters</h2>
@@ -1615,25 +2299,64 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+                </>
+              ) : (
+                <div className="mt-6 border-t border-slate-200 pt-4 dark:border-[#2a2a2a]">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
+                    <h2 className="text-sm font-semibold">My Reports</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                      Your report registry is open in the main workspace. Select a report there to view its tracking drawer.
+                    </p>
+
+                    {isMyReportsFetching && (
+                      <p className="mt-3 text-xs text-slate-400">Refreshing reports...</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="shrink-0 border-t border-slate-200 p-3 dark:border-[#2a2a2a]">
               <div className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-[#2a2a2a] dark:bg-[#101010]">
-                <p className="text-sm font-medium">Nearby</p>
+                <p className="text-sm font-medium">
+                  {activeSidebarTab === "my-reports" ? "My Reports" : "Nearby"}
+                </p>
 
-                <div className="mt-2 flex items-center justify-between text-sm">
-                  <span className="text-slate-500 dark:text-slate-400">
-                    Issues
-                  </span>
-                  <span>{nearbyPanelIssues.length}</span>
-                </div>
+                {activeSidebarTab === "my-reports" ? (
+                  <>
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Total
+                      </span>
+                      <span>{myReports.length}</span>
+                    </div>
 
-                <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-slate-500 dark:text-slate-400">
-                    High severity
-                  </span>
-                  <span>{highSeverityCount}</span>
-                </div>
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Resolved
+                      </span>
+                      <span>
+                        {myReports.filter((report) => report.status === "RESOLVED").length}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-2 flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Issues
+                      </span>
+                      <span>{nearbyPanelIssues.length}</span>
+                    </div>
+
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        High severity
+                      </span>
+                      <span>{highSeverityCount}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1642,9 +2365,13 @@ export default function Dashboard() {
         <main className="grid min-h-0 grid-rows-[56px_minmax(0,1fr)]">
           <header className="z-10 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-5 dark:border-[#2a2a2a] dark:bg-[#0f0f0f]">
             <div>
-              <h2 className="text-base font-semibold">Map dashboard</h2>
+              <h2 className="text-base font-semibold">
+                {activeSidebarTab === "my-reports" ? "My Reports" : "Map dashboard"}
+              </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Select a marker for details or click the map to create a report
+                {activeSidebarTab === "my-reports"
+                  ? "Track your submitted reports, timeline, SLA status, and resolution evidence"
+                  : "Select a marker for details or click the map to create a report"}
               </p>
             </div>
 
@@ -1695,7 +2422,20 @@ export default function Dashboard() {
             </div>
           </header>
 
-          <section className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-3 p-3">
+          {activeSidebarTab === "my-reports" ? (
+            <CitizenReportsWorkspace
+              reports={myReports}
+              isLoading={isMyReportsLoading}
+              isFetching={isMyReportsFetching}
+              selectedReportId={selectedCitizenReportId}
+              selectedReport={selectedCitizenReport}
+              isReportLoading={isCitizenReportLoading}
+              isReportFetching={isCitizenReportFetching}
+              onOpenReport={openMyReport}
+              onCloseReport={closeMyReport}
+            />
+          ) : (
+            <section className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-3 p-3">
             <div className="relative min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white dark:border-[#2a2a2a] dark:bg-[#151515]">
               <MapContainer
                 center={[center.lat, center.lng]}
@@ -2118,13 +2858,19 @@ export default function Dashboard() {
                   onOpenMatchedIssue={handleOpenMatchedIssue}
                   getDisplayArea={getDisplayArea}
                 />
+              ) : drawerMode === "my-report" && selectedCitizenReportId ? (
+                <CitizenReportDrawer
+                  report={selectedCitizenReport}
+                  isLoading={isCitizenReportLoading}
+                  isFetching={isCitizenReportFetching}
+                  onClose={closeMyReport}
+                />
               ) : (
                 <div className="grid h-full grid-rows-[auto_minmax(0,1fr)]">
                   <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
                     <h2 className="text-sm font-semibold">Issue details</h2>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      Select a marker to inspect details or click the map to
-                      create a report.
+                      Select a marker or nearby issue.
                     </p>
                   </div>
 
@@ -2142,6 +2888,7 @@ export default function Dashboard() {
               )}
             </aside>
           </section>
+          )}
         </main>
       </div>
     </div>

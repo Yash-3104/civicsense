@@ -13,7 +13,7 @@ public enum Department {
     DRAINAGE_DEPARTMENT,
 
     SEWAGE_DEPARTMENT,
-
+    
     WASTE_MANAGEMENT,
 
     SANITATION_DEPARTMENT,

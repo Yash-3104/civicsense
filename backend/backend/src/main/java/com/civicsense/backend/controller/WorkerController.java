@@ -1,109 +1,57 @@
 package com.civicsense.backend.controller;
 
+import com.civicsense.backend.dto.AssignWorkerDepartmentRequest;
+import com.civicsense.backend.dto.WorkerDepartmentResponse;
 import com.civicsense.backend.dto.WorkerSummary;
 import com.civicsense.backend.entity.Department;
-import com.civicsense.backend.entity.UserRole;
-import com.civicsense.backend.repository.UserRepository;
+import com.civicsense.backend.service.WorkerService;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/workers")
 @RequiredArgsConstructor
 public class WorkerController {
 
-    private final UserRepository userRepository;
+    private final WorkerService workerService;
 
     @GetMapping
     public List<WorkerSummary> getAssignableWorkers() {
-
-        return userRepository
-                .findByRoleIn(
-                        List.of(
-                                UserRole.WORKER,
-                                UserRole.OFFICER,
-                                UserRole.SUPERVISOR
-                        )
-                )
-                .stream()
-                .map(user ->
-                        WorkerSummary.builder()
-                                .id(user.getId())
-                                .name(user.getName())
-                                .role(user.getRole().name())
-                                .build()
-                )
-                .toList();
+        return workerService.getAssignableWorkers();
     }
 
     @GetMapping("/by-department/{department}")
     public List<WorkerSummary> getWorkersByDepartment(
             @PathVariable Department department
     ) {
-
-        return userRepository
-                .findByRoleIn(
-                        List.of(
-                                UserRole.WORKER,
-                                UserRole.OFFICER,
-                                UserRole.SUPERVISOR
-                        )
-                )
-                .stream()
-                .filter(user ->
-                        isWorkerEligibleForDepartment(
-                                user.getEmail(),
-                                department
-                        )
-                )
-                .map(user ->
-                        WorkerSummary.builder()
-                                .id(user.getId())
-                                .name(user.getName())
-                                .role(user.getRole().name())
-                                .build()
-                )
-                .toList();
+        return workerService.getWorkersByDepartment(department);
     }
 
-    private boolean isWorkerEligibleForDepartment(
-            String email,
-            Department department
+    @GetMapping("/{workerId}/departments")
+    public List<WorkerDepartmentResponse> getWorkerDepartments(
+            @PathVariable UUID workerId
     ) {
+        return workerService.getWorkerDepartments(workerId);
+    }
 
-        if (email == null || department == null) {
-            return false;
-        }
+    @PostMapping("/{workerId}/departments")
+    public WorkerDepartmentResponse assignWorkerDepartment(
+            @PathVariable UUID workerId,
+            @RequestBody AssignWorkerDepartmentRequest request
+    ) {
+        return workerService.assignDepartment(workerId, request);
+    }
 
-        String normalized =
-                email.toLowerCase();
-
-        return switch (department) {
-
-            case ROAD_MAINTENANCE,
-                 PUBLIC_WORKS,
-                 URBAN_INFRASTRUCTURE ->
-
-                    normalized.contains("worker1") ||
-                    normalized.contains("road");
-
-            case WATER_SUPPLY,
-                 DRAINAGE_DEPARTMENT,
-                 SEWAGE_DEPARTMENT ->
-
-                    normalized.contains("water");
-
-            case ELECTRICAL_DEPARTMENT,
-                 STREETLIGHT_MAINTENANCE ->
-
-                    normalized.contains("streetlight");
-
-            case WASTE_MANAGEMENT,
-                 SANITATION_DEPARTMENT ->
-
-                    normalized.contains("garbage");
-        };
+    @DeleteMapping("/{workerId}/departments/{department}")
+    public void removeWorkerDepartment(
+            @PathVariable UUID workerId,
+            @PathVariable Department department
+    ) {
+        workerService.removeDepartment(workerId, department);
     }
 }
