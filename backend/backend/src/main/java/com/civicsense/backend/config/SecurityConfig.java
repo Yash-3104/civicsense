@@ -38,6 +38,17 @@ public class SecurityConfig {
                                 "/uploads/**",
                                 "/ws/**"
                         ).permitAll()
+
+                        /*
+                         * CSV exports.
+                         * Admin export is already working.
+                         * Supervisor export is moved to /api/export/supervisor/**
+                         * to avoid the /api/supervisor/** matcher conflict causing 403.
+                         */
+                        .requestMatchers(HttpMethod.GET, "/api/admin/export/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/export/supervisor/**").authenticated()
+                        .requestMatchers("/api/notifications/**").authenticated()
+
                         .requestMatchers("/api/departments", "/api/departments/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/staff", "/api/staff/**").hasRole("ADMIN")

@@ -30,6 +30,7 @@ public class SupervisorService {
     private final UserRepository userRepository;
     private final WorkerDepartmentRepository workerDepartmentRepository;
     private final IssueActivityService issueActivityService;
+    private final NotificationService notificationService;
 
     public SupervisorOverviewResponse getOverview() {
         User currentUser = getCurrentUser();
@@ -46,12 +47,16 @@ public class SupervisorService {
                 .filter(this::isActiveOperationalIssue)
                 .toList();
 
+        List<Issue> supervisorVisibleIssues = scopedIssues.stream()
+                .filter(this::isSupervisorVisibleTaskIssue)
+                .toList();
+
         List<User> scopedStaff = getStaffForSupervisorDepartments(
                 supervisorDepartments,
                 currentUser
         );
 
-        List<SupervisorIssueQueueItem> taskQueue = activeIssues.stream()
+        List<SupervisorIssueQueueItem> taskQueue = supervisorVisibleIssues.stream()
                 .sorted(this::compareTaskPriority)
                 .map(this::mapToQueueItem)
                 .toList();
@@ -133,6 +138,8 @@ public class SupervisorService {
                 "Supervisor note: " + note,
                 currentUser
         );
+
+        notificationService.notifySupervisorNoteAdded(issue, currentUser);
     }
 
     private void validateUserCanAccessIssueDepartment(User currentUser, Issue issue) {
@@ -278,6 +285,7 @@ public class SupervisorService {
                 .escalatedAt(issue.getEscalatedAt())
                 .escalatedBy(mapUserSummary(issue.getEscalatedBy()))
                 .updatedAt(issue.getUpdatedAt())
+                .resolvedAt(issue.getResolvedAt())
                 .build();
     }
 
@@ -290,6 +298,12 @@ public class SupervisorService {
         return issue.getStatus() == IssueStatus.ASSIGNED ||
                 issue.getStatus() == IssueStatus.IN_PROGRESS ||
                 issue.getStatus() == IssueStatus.PENDING_CLOSURE;
+    }
+
+    private boolean isSupervisorVisibleTaskIssue(Issue issue) {
+        if (issue == null || issue.getStatus() == null) return false;
+        return isActiveOperationalIssue(issue) ||
+                issue.getStatus() == IssueStatus.RESOLVED;
     }
 
     private boolean isEscalated(Issue issue) {

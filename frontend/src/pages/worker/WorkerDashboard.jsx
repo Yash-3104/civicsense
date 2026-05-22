@@ -1,4 +1,5 @@
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import { Button } from "@/components/ui/button";
 import API from "@/services/api";
 import {
@@ -8,7 +9,7 @@ import {
 import { useAuthStore } from "@/store/useAuthStore";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import WorkerOperationsFeed from "./components/WorkerOperationsFeed";
 import WorkerQueue from "./components/WorkerQueue";
@@ -61,6 +62,7 @@ function getDisplayArea(issue) {
 
 export default function WorkerDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
@@ -118,6 +120,15 @@ export default function WorkerDashboard() {
     refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
+
+
+  useEffect(() => {
+    const notificationIssueId = searchParams.get("issueId");
+
+    if (notificationIssueId) {
+      setSelectedIssueId(notificationIssueId);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     selectedIssueIdRef.current = selectedIssueId;
@@ -240,6 +251,8 @@ export default function WorkerDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
+
             <div className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">
               {currentWorkerName} · {currentWorkerEmail}
             </div>
@@ -345,7 +358,7 @@ export default function WorkerDashboard() {
                   </div>
                 ) : (
                   <div className="mt-5 rounded-2xl border border-dashed border-zinc-700 p-8 text-center text-sm text-zinc-500">
-                    No task selected.
+                    No active task selected. Choose an assigned issue from the worker queue, or open one from a notification.
                   </div>
                 )}
               </div>
@@ -371,7 +384,10 @@ export default function WorkerDashboard() {
                   issue={selectedIssue}
                   isLoading={isIssueLoading}
                   isFetching={isIssueFetching}
-                  onClose={() => setSelectedIssueId(null)}
+                  onClose={() => {
+                    setSelectedIssueId(null);
+                    setSearchParams({});
+                  }}
                   getDisplayArea={getDisplayArea}
                   isWorker
                 />
@@ -382,7 +398,7 @@ export default function WorkerDashboard() {
                   <p className="font-semibold text-white">No task selected</p>
 
                   <p className="mt-2 text-sm text-zinc-500">
-                    Choose an assigned issue from the worker queue.
+                    Choose an assigned issue from the worker queue, or open one from a notification.
                   </p>
                 </div>
               </div>

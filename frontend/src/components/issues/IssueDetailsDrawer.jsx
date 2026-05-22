@@ -40,6 +40,62 @@ function formatDate(value) {
 }
 
 
+function safeExportFilePart(value) {
+  return String(value || "issue")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "issue";
+}
+
+function todayExportDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function downloadTimelineExport(url, filename, contentType) {
+  const response = await API.get(url, {
+    responseType: "blob",
+  });
+
+  const blob = new Blob([response.data], {
+    type: contentType,
+  });
+
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+async function readExportBlobError(error) {
+  const data = error?.response?.data;
+
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      return text || "Request failed.";
+    } catch {
+      return "Request failed.";
+    }
+  }
+
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  return null;
+}
+
+
 function getSlaState(issue) {
   const closedStatuses = ["RESOLVED", "REJECTED"];
 
@@ -433,7 +489,7 @@ function getActivityStyle(type) {
   }
 }
 
-function IssueTimelineSection({ issue }) {
+function IssueTimelineSection({ issue, canExportTimeline = false }) {
   const issueId = issue?.id;
 
   const {
@@ -454,6 +510,46 @@ function IssueTimelineSection({ issue }) {
     refetchOnWindowFocus: false,
   });
 
+
+  const [timelineExporting, setTimelineExporting] = useState(null);
+
+  const handleExportTimeline = async (format) => {
+    if (!issueId || timelineExporting) {
+      return;
+    }
+
+    const issuePart = safeExportFilePart(issue?.title || issueId);
+    const extension = format === "xlsx" ? "xlsx" : "csv";
+    const contentType =
+      format === "xlsx"
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "text/csv;charset=utf-8;";
+
+    setTimelineExporting(format);
+
+    try {
+      await downloadTimelineExport(
+        `/api/issues/${issueId}/timeline/export.${extension}`,
+        `${issuePart}-Timeline-${todayExportDate()}.${extension}`,
+        contentType
+      );
+
+      toast.success("Timeline exported", {
+        description: `${format.toUpperCase()} audit timeline downloaded.`,
+      });
+    } catch (error) {
+      console.error("Timeline export failed", error);
+
+      toast.error("Failed to export timeline", {
+        description:
+          (await readExportBlobError(error)) ||
+          "Check permissions and try again.",
+      });
+    } finally {
+      setTimelineExporting(null);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm dark:border-[#262626] dark:bg-[#111111]/80">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -466,11 +562,35 @@ function IssueTimelineSection({ issue }) {
           </p>
         </div>
 
-        {isFetching && (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-400">
-            Syncing
-          </span>
-        )}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {canExportTimeline && issueId && (
+            <>
+              <button
+                type="button"
+                disabled={Boolean(timelineExporting)}
+                onClick={() => handleExportTimeline("csv")}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300 dark:hover:bg-[#1f1f1f]"
+              >
+                {timelineExporting === "csv" ? "Exporting..." : "Export CSV"}
+              </button>
+
+              <button
+                type="button"
+                disabled={Boolean(timelineExporting)}
+                onClick={() => handleExportTimeline("xlsx")}
+                className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-950/60"
+              >
+                {timelineExporting === "xlsx" ? "Exporting..." : "Export XLSX"}
+              </button>
+            </>
+          )}
+
+          {isFetching && (
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-400">
+              Syncing
+            </span>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -551,6 +671,97 @@ function IssueTimelineSection({ issue }) {
     </section>
   );
 }
+
+
+function IssueFeedbackReadOnlySection({ issue, canViewFeedback }) {
+  const issueId = issue?.id;
+
+  const {
+    data: feedback,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: ["issue-feedback", issueId],
+    queryFn: async () => {
+      const response = await API.get(`/api/issues/${issueId}/feedback`);
+      return response.data || null;
+    },
+    enabled: Boolean(issueId) && Boolean(canViewFeedback),
+    retry: 1,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: false,
+  });
+
+  if (!canViewFeedback || !issueId) {
+    return null;
+  }
+
+  if (isLoading) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-[#262626] dark:bg-[#111111]/80">
+        <p className="text-sm font-semibold text-slate-900 dark:text-white">
+          Citizen Feedback
+        </p>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          Loading feedback...
+        </p>
+      </section>
+    );
+  }
+
+  if (!feedback) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-[#262626] dark:bg-[#111111]/80">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">
+              Citizen Feedback
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              No citizen feedback has been submitted for this issue yet.
+            </p>
+          </div>
+
+          {isFetching && (
+            <span className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 dark:border-[#333333] dark:text-slate-400">
+              Syncing
+            </span>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const isSatisfied = feedback.rating === "SATISFIED";
+
+  return (
+    <section
+      className={`rounded-2xl border p-4 shadow-sm ${
+        isSatisfied
+          ? "border-emerald-200 bg-emerald-50/80 text-emerald-900 dark:border-emerald-900/70 dark:bg-emerald-950/20 dark:text-emerald-200"
+          : "border-red-200 bg-red-50/80 text-red-900 dark:border-red-900/70 dark:bg-red-950/20 dark:text-red-200"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Citizen Feedback</p>
+          <p className="mt-1 text-xs opacity-80">
+            Submitted by {feedback.citizenName || "Citizen"} · {formatDate(feedback.createdAt)}
+          </p>
+        </div>
+
+        <span className="rounded-full border border-current/20 bg-white/60 px-2.5 py-1 text-[11px] font-semibold dark:bg-black/20">
+          {feedback.ratingLabel || feedback.rating}
+        </span>
+      </div>
+
+      {feedback.comment && (
+        <p className="mt-3 text-sm leading-6">{feedback.comment}</p>
+      )}
+    </section>
+  );
+}
+
 
 export default function IssueDetailsDrawer({
   issue,
@@ -774,6 +985,11 @@ export default function IssueDetailsDrawer({
   const isRejectedIssue = issue?.status === "REJECTED";
   const isResolvedIssue = issue?.status === "RESOLVED";
 
+  const hasReportEvidence =
+    !isResolvedIssue &&
+    !isPendingClosureIssue &&
+    Boolean(issue?.imageUrl);
+
   const hasResolutionEvidence =
     isResolvedIssue ||
     isPendingClosureIssue ||
@@ -828,7 +1044,7 @@ export default function IssueDetailsDrawer({
           </div>
         ) : !issue ? (
           <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
-            Issue details unavailable.
+            Issue details could not be loaded. Try opening it again from the dashboard.
           </div>
         ) : (
           <div className="space-y-4">
@@ -1058,17 +1274,38 @@ export default function IssueDetailsDrawer({
               />
             )}
 
+            {hasReportEvidence && (
+              <section className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-[#262626] dark:bg-[#111111]/80">
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Report Evidence
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Original image attached when this issue was reported.
+                  </p>
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-[#333333] dark:bg-[#101010]">
+                  <img
+                    src={issue.imageUrl}
+                    alt={`${issue.title} report evidence`}
+                    className="h-48 w-full bg-black object-contain"
+                  />
+                </div>
+              </section>
+            )}
+
             {hasResolutionEvidence && (
               <section className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 shadow-sm dark:border-emerald-900/70 dark:bg-emerald-950/20">
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
-                      {isPendingClosureIssue ? "Closure Review Evidence" : "Resolution Evidence"}
+                      {isPendingClosureIssue ? "Closure Review Evidence" : "Before & After Evidence"}
                     </h3>
                     <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
                       {isPendingClosureIssue
-                        ? "Worker-submitted proof is awaiting admin verification before final closure."
-                        : "Closure proof submitted by the operations team for accountability and before/after verification."}
+                        ? "Worker-submitted closure evidence is awaiting admin verification."
+                        : "Original report image and worker resolution proof for before/after verification."}
                     </p>
                   </div>
 
@@ -1080,7 +1317,7 @@ export default function IssueDetailsDrawer({
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-xl border border-emerald-100 bg-white/85 p-3 dark:border-emerald-900/60 dark:bg-[#111111]/70">
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Before image
+                      Original Report Image
                     </p>
 
                     {issue.imageUrl ? (
@@ -1091,14 +1328,14 @@ export default function IssueDetailsDrawer({
                       />
                     ) : (
                       <div className="flex h-44 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-500">
-                        No before image
+                        No original report image
                       </div>
                     )}
                   </div>
 
                   <div className="rounded-xl border border-emerald-100 bg-white/85 p-3 dark:border-emerald-900/60 dark:bg-[#111111]/70">
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      After image
+                      Resolution Proof Image
                     </p>
 
                     {issue.resolutionImageUrl ? (
@@ -1109,7 +1346,7 @@ export default function IssueDetailsDrawer({
                       />
                     ) : (
                       <div className="flex h-44 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-xs text-slate-400 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-500">
-                        No after image uploaded
+                        No resolution proof image uploaded
                       </div>
                     )}
                   </div>
@@ -1445,7 +1682,12 @@ export default function IssueDetailsDrawer({
               </section>
             )}
 
-            <IssueTimelineSection issue={issue} />
+            <IssueFeedbackReadOnlySection
+              issue={issue}
+              canViewFeedback={isAdmin || isSupervisor}
+            />
+
+            <IssueTimelineSection issue={issue} canExportTimeline={isAdmin || isSupervisor} />
 
             {isWorker && issue && (
               <section className="rounded-2xl border border-cyan-200 bg-cyan-50/80 p-4 shadow-sm backdrop-blur-sm dark:border-cyan-900/70 dark:bg-cyan-950/20">
@@ -1823,4 +2065,3 @@ export default function IssueDetailsDrawer({
     </div>
   );
 }
-

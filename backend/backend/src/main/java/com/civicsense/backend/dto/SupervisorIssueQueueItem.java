@@ -24,4 +24,5 @@ public class SupervisorIssueQueueItem {
     private LocalDateTime escalatedAt;
     private UserSummary escalatedBy;
     private LocalDateTime updatedAt;
+    private LocalDateTime resolvedAt;
 }

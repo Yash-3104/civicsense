@@ -3,18 +3,21 @@ import {
   BarChart3,
   CheckCircle2,
   Clock,
+  Download,
   LogOut,
   RefreshCw,
   Shield,
   Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import API from "@/services/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
+import NotificationBell from "@/components/notifications/NotificationBell";
+import { toast } from "sonner";
 
 function formatLabel(value) {
   if (!value) return "Not available";
@@ -58,16 +61,107 @@ function isDueSoon(issue) {
   return diffMs > 0 && diffMs <= 24 * 60 * 60 * 1000;
 }
 
+
+async function downloadExportFile(url, filename, contentType = "application/octet-stream") {
+  const response = await API.get(url, {
+    responseType: "blob",
+  });
+
+  // Prefix BOM so Excel detects UTF-8 correctly.
+  // XLSX cannot store column widths/styles; for true formatted columns we need XLSX export.
+  const blob = new Blob([response.data], {
+    type: contentType,
+  });
+
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+
+
+async function readBlobError(error) {
+  const data = error?.response?.data;
+
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      return text || "Request failed.";
+    } catch {
+      return "Request failed.";
+    }
+  }
+
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  return null;
+}
+
+
+
+
+function formatExportedAt(value) {
+  if (!value) return null;
+
+  try {
+    return new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function safeCsvFilePart(value) {
+  return String(value || "CivicSense")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "CivicSense";
+}
+
+function todayCsvDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+
 export default function SupervisorDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
 
+  const supervisorFilePrefix = safeCsvFilePart(user?.name || "Supervisor");
+
   const [taskFilter, setTaskFilter] = useState("ALL");
   const [workerFilter, setWorkerFilter] = useState("ALL");
   const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [exportingCsv, setExportingCsv] = useState(null);
+  const [lastExportedAt, setLastExportedAt] = useState(null);
+
+
+  useEffect(() => {
+    const notificationIssueId = searchParams.get("issueId");
+
+    if (notificationIssueId) {
+      setSelectedIssueId(notificationIssueId);
+    }
+  }, [searchParams]);
 
   const {
     data: overview,
@@ -124,6 +218,8 @@ export default function SupervisorDashboard() {
         return tasks.filter((issue) => issue.status === "IN_PROGRESS");
       case "PENDING_CLOSURE":
         return tasks.filter((issue) => issue.status === "PENDING_CLOSURE");
+      case "RESOLVED":
+        return tasks.filter((issue) => issue.status === "RESOLVED");
       case "DUE_SOON":
         return tasks.filter(isDueSoon);
       default:
@@ -146,6 +242,33 @@ export default function SupervisorDashboard() {
   const dueSoonCount = useMemo(() => {
     return (overview?.taskQueue || []).filter(isDueSoon).length;
   }, [overview?.taskQueue]);
+
+
+  const handleSupervisorExport = async (type, url, filename) => {
+    if (exportingCsv) return;
+
+    setExportingCsv(type);
+
+    try {
+      await downloadExportFile(url, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+      const exportedAt = new Date();
+      setLastExportedAt(exportedAt);
+
+      toast.success("XLSX exported", {
+        description: `${filename} downloaded successfully.`,
+      });
+    } catch (error) {
+      console.error("Supervisor XLSX export failed", error);
+      const errorMessage =
+        (await readBlobError(error)) ||
+        "Failed to export XLSX. Check supervisor permissions and try again.";
+
+      alert(errorMessage);
+    } finally {
+      setExportingCsv(null);
+    }
+  };
 
   const handleLogout = () => {
     queryClient.clear();
@@ -172,9 +295,51 @@ export default function SupervisorDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
+
             <div className="hidden rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-400 md:block">
               {user?.name || "Supervisor"} · {user?.email || "supervisor"}
             </div>
+            <div className="flex flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={() =>
+                  handleSupervisorExport(
+                    "tasks",
+                    "/api/export/supervisor/tasks.xlsx",
+                    `${supervisorFilePrefix}-Tasks-${todayCsvDate()}.xlsx`
+                  )
+                }
+                disabled={Boolean(exportingCsv)}
+                className="inline-flex items-center gap-2 rounded-lg border border-orange-900/70 bg-orange-950/30 px-4 py-2 text-sm font-medium text-orange-200 transition hover:border-orange-700 hover:bg-orange-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exportingCsv === "tasks" ? "Exporting..." : "Export Tasks"}
+              </button>
+
+              {lastExportedAt && (
+                <span className="text-[11px] text-zinc-500">
+                  Last exported at {formatExportedAt(lastExportedAt)}
+                </span>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                handleSupervisorExport(
+                  "timelines",
+                  "/api/export/supervisor/issue-timelines.xlsx",
+                  `${supervisorFilePrefix}-Department-Issue-Timelines-${todayCsvDate()}.xlsx`
+                )
+              }
+              disabled={Boolean(exportingCsv)}
+              className="inline-flex items-center gap-2 rounded-lg border border-emerald-900/70 bg-emerald-950/30 px-4 py-2 text-sm font-medium text-emerald-200 transition hover:border-emerald-700 hover:bg-emerald-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {exportingCsv === "timelines" ? "Exporting..." : "Audit Timelines"}
+            </button>
+
             <button type="button" onClick={() => refetch()} className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-4 py-2 text-sm transition hover:border-zinc-500 hover:bg-zinc-800">
               <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
               Refresh
@@ -207,10 +372,15 @@ export default function SupervisorDashboard() {
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-orange-200">Supervisor Scope</h2>
                   <p className="mt-1 text-sm text-zinc-400">This dashboard is filtered to your mapped departments.</p>
+                  {lastExportedAt && (
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Export activity: Last exported at {formatExportedAt(lastExportedAt)}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {mappedDepartments.length === 0 ? (
-                    <span className="rounded-full border border-amber-900/70 bg-amber-950/30 px-3 py-1 text-xs text-amber-200">No departments mapped</span>
+                    <span className="rounded-full border border-amber-900/70 bg-amber-950/30 px-3 py-1 text-xs text-amber-200">No departments mapped — ask an admin to map you to a department.</span>
                   ) : (
                     mappedDepartments.map((department) => (
                       <span key={department} className="rounded-full border border-orange-900/70 bg-orange-950/30 px-3 py-1 text-xs font-medium text-orange-100">{formatLabel(department)}</span>
@@ -220,11 +390,12 @@ export default function SupervisorDashboard() {
               </div>
             </section>
 
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-4 xl:grid-cols-8">
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-4 xl:grid-cols-9">
               <StatCard label="Active" value={overview?.activeIssues} icon={<BarChart3 />} tone="blue" />
               <StatCard label="Assigned" value={overview?.assignedIssues} icon={<Users />} tone="cyan" />
               <StatCard label="In Progress" value={overview?.inProgressIssues} icon={<Clock />} tone="amber" />
               <StatCard label="Pending Closure" value={overview?.pendingClosureIssues} icon={<CheckCircle2 />} tone="purple" />
+              <StatCard label="Resolved" value={overview?.resolvedIssues} icon={<CheckCircle2 />} tone="emerald" />
               <StatCard label="Due Soon" value={dueSoonCount} icon={<Clock />} tone="orange" />
               <StatCard label="SLA Breached" value={overview?.slaBreachedIssues} icon={<AlertTriangle />} tone="red" />
               <StatCard label="Escalated" value={overview?.escalatedIssues} icon={<AlertTriangle />} tone="orange" />
@@ -236,7 +407,23 @@ export default function SupervisorDashboard() {
                 <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <h2 className="text-xl font-semibold text-white">My Department Tasks</h2>
-                    <p className="mt-1 text-sm text-zinc-400">Regular active tasks from your mapped departments.</p>
+                    <p className="mt-1 text-sm text-zinc-400">Active and resolved tasks from your mapped departments.</p>
+
+                    <button
+                      type="button"
+                      disabled={Boolean(exportingCsv)}
+                      onClick={() =>
+                        handleSupervisorExport(
+                          "tasks",
+                          "/api/export/supervisor/tasks.xlsx",
+                          `${supervisorFilePrefix}-Tasks-${todayCsvDate()}.xlsx`
+                        )
+                      }
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-orange-900/70 bg-orange-950/30 px-3 py-2 text-xs font-medium text-orange-200 transition hover:border-orange-700 hover:bg-orange-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Download className="h-4 w-4" />
+                      {exportingCsv === "tasks" ? "Exporting..." : "Export Tasks XLSX"}
+                    </button>
                   </div>
                   <div className="flex flex-col gap-3 lg:items-end">
                     <select value={workerFilter} onChange={(event) => setWorkerFilter(event.target.value)} className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-white outline-none transition focus:border-orange-500">
@@ -246,7 +433,7 @@ export default function SupervisorDashboard() {
                       ))}
                     </select>
                     <div className="flex flex-wrap justify-end gap-2">
-                      {["ALL", "ASSIGNED", "IN_PROGRESS", "PENDING_CLOSURE", "DUE_SOON"].map((filter) => (
+                      {["ALL", "ASSIGNED", "IN_PROGRESS", "PENDING_CLOSURE", "RESOLVED", "DUE_SOON"].map((filter) => (
                         <button key={filter} type="button" onClick={() => setTaskFilter(filter)} className={`rounded-full border px-3 py-1 text-xs font-medium transition ${taskFilter === filter ? "border-orange-700 bg-orange-950/60 text-orange-100" : "border-zinc-700 bg-zinc-950 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"}`}>
                           {filter === "ALL" ? "All" : formatLabel(filter)}
                         </button>
@@ -257,7 +444,7 @@ export default function SupervisorDashboard() {
 
                 <div className="space-y-3">
                   {taskQueue.length === 0 ? (
-                    <EmptyState message="No active tasks found for this filter." />
+                    <EmptyState message="No department tasks match this filter. Try All or check mapped departments." />
                   ) : (
                     taskQueue.map((issue) => <TaskQueueCard key={issue.id} issue={issue} onClick={() => setSelectedIssueId(issue.id)} />)
                   )}
@@ -269,6 +456,22 @@ export default function SupervisorDashboard() {
                   <div>
                     <h2 className="text-xl font-semibold text-white">SLA & Escalation Queue</h2>
                     <p className="mt-1 text-sm text-zinc-400">Breached or escalated tasks from your mapped departments.</p>
+
+                    <button
+                      type="button"
+                      disabled={Boolean(exportingCsv)}
+                      onClick={() =>
+                        handleSupervisorExport(
+                          "sla",
+                          "/api/export/supervisor/sla-queue.xlsx",
+                          `${supervisorFilePrefix}-SLA-Escalation-Queue-${todayCsvDate()}.xlsx`
+                        )
+                      }
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-900/70 bg-red-950/30 px-3 py-2 text-xs font-medium text-red-200 transition hover:border-red-700 hover:bg-red-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Download className="h-4 w-4" />
+                      {exportingCsv === "sla" ? "Exporting..." : "Export SLA XLSX"}
+                    </button>
                   </div>
                   <span className="rounded-full border border-orange-900/70 bg-orange-950/30 px-3 py-1 text-xs font-medium text-orange-200">{overview?.slaQueue?.length || 0} risks</span>
                 </div>
@@ -284,19 +487,55 @@ export default function SupervisorDashboard() {
 
             <section className="grid gap-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-                <div className="mb-5">
-                  <h2 className="text-xl font-semibold text-white">Department Workload</h2>
-                  <p className="mt-1 text-sm text-zinc-400">Active operational load for your mapped departments.</p>
+                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Department Workload</h2>
+                    <p className="mt-1 text-sm text-zinc-400">Active operational load for your mapped departments.</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={Boolean(exportingCsv)}
+                    onClick={() =>
+                      handleSupervisorExport(
+                        "departments",
+                        "/api/export/supervisor/department-workload.xlsx",
+                        `${supervisorFilePrefix}-Department-Workload-${todayCsvDate()}.xlsx`
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Download className="h-4 w-4" />
+                    {exportingCsv === "departments" ? "Exporting..." : "Export XLSX"}
+                  </button>
                 </div>
                 <div className="space-y-3">
-                  {topDepartments.length === 0 ? <EmptyState message="No active department workload." /> : topDepartments.map((department) => <DepartmentRow key={department.department} department={department} />)}
+                  {topDepartments.length === 0 ? <EmptyState message="No department workload yet. Assigned and resolved work will appear here." /> : topDepartments.map((department) => <DepartmentRow key={department.department} department={department} />)}
                 </div>
               </div>
 
               <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-                <div className="mb-5">
-                  <h2 className="text-xl font-semibold text-white">Worker Workload</h2>
-                  <p className="mt-1 text-sm text-zinc-400">Workers mapped to your departments and their active work.</p>
+                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Worker Workload</h2>
+                    <p className="mt-1 text-sm text-zinc-400">Workers mapped to your departments and their active work.</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={Boolean(exportingCsv)}
+                    onClick={() =>
+                      handleSupervisorExport(
+                        "workers",
+                        "/api/export/supervisor/worker-workload.xlsx",
+                        `${supervisorFilePrefix}-Worker-Workload-${todayCsvDate()}.xlsx`
+                      )
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Download className="h-4 w-4" />
+                    {exportingCsv === "workers" ? "Exporting..." : "Export XLSX"}
+                  </button>
                 </div>
                 <div className="overflow-hidden rounded-2xl border border-zinc-800">
                   <table className="w-full text-left text-sm">
@@ -307,13 +546,14 @@ export default function SupervisorDashboard() {
                         <th className="px-4 py-3">Assigned</th>
                         <th className="px-4 py-3">In Progress</th>
                         <th className="px-4 py-3">Pending Closure</th>
+                        <th className="px-4 py-3">Resolved</th>
                         <th className="px-4 py-3">SLA Breached</th>
                         <th className="px-4 py-3">Escalated</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800">
                       {topWorkers.length === 0 ? (
-                        <tr><td colSpan={7} className="px-4 py-10 text-center text-zinc-500">No worker workload data available.</td></tr>
+                        <tr><td colSpan={8} className="px-4 py-10 text-center text-zinc-500">No worker workload yet. Assign department tasks to workers to populate this table.</td></tr>
                       ) : (
                         topWorkers.map((worker) => <WorkerRow key={worker.workerId} worker={worker} />)
                       )}
@@ -334,7 +574,10 @@ export default function SupervisorDashboard() {
               issue={selectedIssue}
               isLoading={isIssueLoading}
               isFetching={isIssueFetching}
-              onClose={() => setSelectedIssueId(null)}
+              onClose={() => {
+                setSelectedIssueId(null);
+                setSearchParams({});
+              }}
               isSupervisor
               canAddSupervisorNote
             />
@@ -383,8 +626,8 @@ function TaskQueueCard({ issue, onClick }) {
           <p className="mt-1 text-xs text-zinc-500">{issue.address || "No address"} · SLA: {formatDate(issue.slaDeadline)}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xs text-zinc-500">Updated</p>
-          <p className="mt-1 text-xs font-medium text-zinc-300">{formatDate(issue.updatedAt)}</p>
+          <p className="text-xs text-zinc-500">{issue.status === "RESOLVED" ? "Resolved" : "Updated"}</p>
+          <p className="mt-1 text-xs font-medium text-zinc-300">{formatDate(issue.status === "RESOLVED" ? issue.resolvedAt || issue.updatedAt : issue.updatedAt)}</p>
           <p className="mt-2 text-[11px] font-semibold text-orange-300">Open</p>
         </div>
       </div>
@@ -445,11 +688,12 @@ function WorkerRow({ worker }) {
           <div className="flex max-w-md flex-wrap gap-2">
             {worker.departments.map((department) => <span key={department} className="rounded-full border border-zinc-700 bg-zinc-950 px-2.5 py-1 text-xs text-zinc-300">{formatLabel(department)}</span>)}
           </div>
-        ) : <span className="text-xs text-amber-300">No departments mapped</span>}
+        ) : <span className="text-xs text-amber-300">No departments mapped — ask an admin to map you to a department.</span>}
       </td>
       <td className="px-4 py-4 text-zinc-300">{worker.assignedCount || 0}</td>
       <td className="px-4 py-4 text-zinc-300">{worker.inProgressCount || 0}</td>
       <td className="px-4 py-4 text-zinc-300">{worker.pendingClosureCount || 0}</td>
+      <td className="px-4 py-4 text-emerald-300">{worker.resolvedCount || 0}</td>
       <td className="px-4 py-4 text-red-300">{worker.slaBreachedCount || 0}</td>
       <td className="px-4 py-4 text-orange-300">{worker.escalatedCount || 0}</td>
     </tr>

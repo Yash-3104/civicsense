@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import { useAuthStore } from "@/store/useAuthStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import {
@@ -19,7 +20,7 @@ import {
 import MarkerClusterGroup from "react-leaflet-cluster";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import API from "@/services/api";
 import {
   connectIssueSocket,
@@ -865,7 +866,7 @@ function CitizenReportCard({ report, isSelected, onClick }) {
           </span>
         )}
 
-        {report.resolutionImageUrl && (
+        {report.status === "RESOLVED" && report.resolutionImageUrl && (
           <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
             Proof
           </span>
@@ -894,6 +895,157 @@ function CitizenInfoBox({ label, value, tone = "default" }) {
     </div>
   );
 }
+
+
+function CitizenFeedbackPanel({ report }) {
+  const queryClient = useQueryClient();
+  const [rating, setRating] = useState("SATISFIED");
+  const [comment, setComment] = useState("");
+
+  const issueId = report?.id;
+  const isResolved = report?.status === "RESOLVED";
+
+  const {
+    data: feedback,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: ["citizen-report-feedback", issueId],
+    queryFn: async () => {
+      const response = await API.get(`/api/citizen/my-reports/${issueId}/feedback`);
+      return response.data || null;
+    },
+    enabled: Boolean(issueId) && isResolved,
+    retry: 1,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: false,
+  });
+
+  const submitFeedbackMutation = useMutation({
+    mutationFn: async () => {
+      const response = await API.post(`/api/citizen/my-reports/${issueId}/feedback`, {
+        rating,
+        comment,
+      });
+
+      return response.data;
+    },
+    onSuccess: async () => {
+      setComment("");
+
+      await queryClient.invalidateQueries({
+        queryKey: ["citizen-report-feedback", issueId],
+      });
+
+      toast.success("Feedback submitted", {
+        description: "Thanks for helping improve CivicSense resolutions.",
+      });
+    },
+    onError: (error) => {
+      toast.error("Failed to submit feedback", {
+        description:
+          error?.response?.data?.message ||
+          error?.response?.data ||
+          "Please try again.",
+      });
+    },
+  });
+
+  if (!isResolved) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Resolution Feedback
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            Tell us whether the resolved issue was handled satisfactorily.
+          </p>
+        </div>
+
+        {isFetching && (
+          <span className="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-500 dark:border-[#333333] dark:text-slate-400">
+            Syncing
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="mt-4 rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
+          Loading feedback...
+        </div>
+      ) : feedback ? (
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+          <p className="text-sm font-semibold">
+            You marked this as: {feedback.ratingLabel || feedback.rating}
+          </p>
+
+          {feedback.comment && (
+            <p className="mt-2 text-sm leading-6">{feedback.comment}</p>
+          )}
+
+          <p className="mt-2 text-xs opacity-80">
+            Submitted at: {formatDate(feedback.createdAt)}
+          </p>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setRating("SATISFIED")}
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
+                rating === "SATISFIED"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300 dark:hover:bg-[#1f1f1f]"
+              }`}
+            >
+              Satisfied
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setRating("NOT_SATISFIED")}
+              className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
+                rating === "NOT_SATISFIED"
+                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                  : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-[#333333] dark:bg-[#151515] dark:text-slate-300 dark:hover:bg-[#1f1f1f]"
+              }`}
+            >
+              Not satisfied
+            </button>
+          </div>
+
+          <textarea
+            value={comment}
+            onChange={(event) => setComment(event.target.value.slice(0, 500))}
+            rows={3}
+            placeholder="Optional comment about the resolution..."
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-500 focus:ring-1 focus:ring-slate-300 dark:border-[#333333] dark:bg-[#101010] dark:text-slate-100 dark:placeholder:text-slate-500"
+          />
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-400">{comment.length}/500</span>
+
+            <button
+              type="button"
+              disabled={submitFeedbackMutation.isPending}
+              onClick={() => submitFeedbackMutation.mutate()}
+              className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+            >
+              {submitFeedbackMutation.isPending ? "Submitting..." : "Submit Feedback"}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 
 function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
   if (isLoading) {
@@ -931,7 +1083,7 @@ function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
 
   const beforeImage = report.imageUrl || report.mediaUrls?.[0];
   const afterImage = report.resolutionImageUrl;
-  const isResolved = report.status === "RESOLVED" || Boolean(report.resolvedAt);
+  const isResolved = report.status === "RESOLVED";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1024,16 +1176,35 @@ function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
             </section>
           )}
 
-          {(beforeImage || afterImage) && (
+          {!isResolved && beforeImage && (
             <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
               <div className="mb-3">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  {isResolved ? "Before & After Evidence" : "Report Evidence"}
+                  Report Image
                 </p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {isResolved
-                    ? "Original report image and resolution proof when available."
-                    : "Original image attached to your report."}
+                  Original image attached when you created this report.
+                </p>
+              </div>
+
+              <div className="overflow-hidden rounded-md border border-slate-200 dark:border-[#2a2a2a]">
+                <img
+                  src={beforeImage}
+                  alt={`${report.title} report evidence`}
+                  className="h-48 w-full bg-black object-contain"
+                />
+              </div>
+            </section>
+          )}
+
+          {isResolved && (beforeImage || afterImage) && (
+            <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Before & After Evidence
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Original report image and resolution proof when available.
                 </p>
               </div>
 
@@ -1073,7 +1244,7 @@ function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
             </section>
           )}
 
-          {(report.resolutionNotes || report.resolvedAt) && (
+          {isResolved && (report.resolutionNotes || report.resolvedAt) && (
             <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
               <p className="text-sm font-semibold">Resolution Evidence</p>
 
@@ -1086,6 +1257,8 @@ function CitizenReportDrawer({ report, isLoading, isFetching, onClose }) {
               </p>
             </section>
           )}
+
+          <CitizenFeedbackPanel report={report} />
 
           <section className="rounded-md border border-slate-200 bg-white p-4 dark:border-[#2a2a2a] dark:bg-[#101010]">
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1238,7 +1411,7 @@ function CitizenReportsWorkspace({
           ) : filteredReports.length === 0 ? (
             <div className="rounded-md border border-dashed border-slate-300 p-8 text-center dark:border-[#333333]">
               <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                No reports found
+                No reports match this view
               </p>
               <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                 Try changing the filters, or create a new report from the Map tab.
@@ -1298,7 +1471,7 @@ function CitizenReportsWorkspace({
                       </span>
                     )}
 
-                    {report.resolutionImageUrl && (
+                    {report.status === "RESOLVED" && report.resolutionImageUrl && (
                       <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
                         Resolution proof
                       </span>
@@ -1363,6 +1536,7 @@ function CitizenReportsWorkspace({
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const logout = useAuthStore((state) => state.logout);
   const queryClient = useQueryClient();
   const selectedIssueIdRef = useRef(null);
@@ -1484,6 +1658,30 @@ export default function Dashboard() {
     retry: 1,
     refetchOnWindowFocus: false,
   });
+
+
+  useEffect(() => {
+    const notificationIssueId = searchParams.get("issueId");
+    const notificationReportId = searchParams.get("reportId");
+    const tab = searchParams.get("tab");
+
+    if (notificationReportId || tab === "my-reports") {
+      setActiveSidebarTab("my-reports");
+      setDrawerMode(notificationReportId ? "my-report" : "empty");
+      setSelectedCitizenReportId(notificationReportId);
+      setSelectedIssueId(null);
+      setSelectedLocation(null);
+      return;
+    }
+
+    if (notificationIssueId) {
+      setActiveSidebarTab("map");
+      setDrawerMode("detail");
+      setSelectedIssueId(notificationIssueId);
+      setSelectedCitizenReportId(null);
+      setSelectedLocation(null);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (darkMode) {
@@ -1862,6 +2060,7 @@ export default function Dashboard() {
     setSelectedIssueId(null);
     setSelectedCitizenReportId(null);
     setActivePopupIssueId(null);
+    setSearchParams({});
   };
 
   const openMapTab = () => {
@@ -1896,6 +2095,7 @@ export default function Dashboard() {
   const closeMyReport = () => {
     setDrawerMode("empty");
     setSelectedCitizenReportId(null);
+    setSearchParams({});
   };
 
   const handleOpenMatchedIssue = async (matchedIssue) => {
@@ -2249,7 +2449,7 @@ export default function Dashboard() {
                     </div>
                   ) : nearbyPanelIssues.length === 0 ? (
                     <div className="rounded-md border border-dashed border-slate-300 p-3 text-sm text-slate-500 dark:border-[#333333] dark:text-slate-400">
-                      No issues found in this area.
+                      No civic issues match this map view or filter.
                     </div>
                   ) : (
                     nearbyPanelIssues.slice(0, 8).map((issue) => (
@@ -2376,6 +2576,8 @@ export default function Dashboard() {
             </div>
 
             <div className="flex items-center gap-2">
+              <NotificationBell variant={darkMode ? "dark" : "light"} />
+
               <div className="hidden items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 md:flex dark:border-[#2a2a2a] dark:bg-[#151515] dark:text-slate-300">
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
@@ -2870,7 +3072,7 @@ export default function Dashboard() {
                   <div className="border-b border-slate-200 px-4 py-3 dark:border-[#2a2a2a]">
                     <h2 className="text-sm font-semibold">Issue details</h2>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      Select a marker or nearby issue.
+                      Select a marker, nearby issue, or notification-linked report.
                     </p>
                   </div>
 

@@ -3,13 +3,17 @@ package com.civicsense.backend.controller;
 import com.civicsense.backend.dto.*;
 import com.civicsense.backend.entity.*;
 import com.civicsense.backend.service.IssueService;
+import com.civicsense.backend.service.TimelineExportService;
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +23,7 @@ import java.util.UUID;
 public class IssueController {
 
     private final IssueService issueService;
+    private final TimelineExportService timelineExportService;
 
     @PostMapping
     public IssueResponse createIssue(@RequestBody CreateIssueRequest request) {
@@ -49,6 +54,44 @@ public class IssueController {
     @GetMapping("/{id}/timeline")
     public List<IssueActivityResponse> getIssueTimeline(@PathVariable UUID id) {
         return issueService.getIssueTimeline(id);
+    }
+
+
+    @GetMapping(value = "/{id}/timeline/export.csv", produces = "text/csv")
+    public ResponseEntity<byte[]> exportIssueTimelineCsv(@PathVariable UUID id) {
+        byte[] csv = timelineExportService.exportIssueTimelineCsv(id);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType("text", "csv", StandardCharsets.UTF_8));
+        headers.setContentDisposition(
+                ContentDisposition
+                        .attachment()
+                        .filename("civicsense-issue-timeline-" + id + ".csv")
+                        .build()
+        );
+
+        return ResponseEntity.ok().headers(headers).body(csv);
+    }
+
+    @GetMapping(
+            value = "/{id}/timeline/export.xlsx",
+            produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    public ResponseEntity<byte[]> exportIssueTimelineXlsx(@PathVariable UUID id) {
+        byte[] xlsx = timelineExportService.exportIssueTimelineXlsx(id);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(
+                MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        );
+        headers.setContentDisposition(
+                ContentDisposition
+                        .attachment()
+                        .filename("civicsense-issue-timeline-" + id + ".xlsx")
+                        .build()
+        );
+
+        return ResponseEntity.ok().headers(headers).body(xlsx);
     }
 
     @GetMapping("/nearby")

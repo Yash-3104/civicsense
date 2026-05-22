@@ -67,6 +67,7 @@ public class IssueService {
     private final AiServiceClient aiServiceClient;
     private final IssueActivityService issueActivityService;
     private final WorkerService workerService;
+    private final NotificationService notificationService;
 
     public IssueResponse createIssue(CreateIssueRequest request) {
 
@@ -109,6 +110,8 @@ public class IssueService {
                 RealtimeEventType.NEW_ISSUE,
                 saved
         );
+
+        notificationService.notifyAdminsNewIssue(saved);
 
         return mapToDetailedResponse(saved);
     }
@@ -189,6 +192,8 @@ public class IssueService {
                 resolveRealtimeEventType(status),
                 savedIssue
         );
+
+        notificationService.notifyIssueStatusChanged(savedIssue);
 
         return mapToDetailedResponse(savedIssue);
     }
@@ -487,6 +492,8 @@ public class IssueService {
                 savedIssue
         );
 
+        notificationService.notifyIssueAssigned(savedIssue, worker);
+
         return mapToDetailedResponse(savedIssue);
     }
 
@@ -550,6 +557,8 @@ public class IssueService {
                 RealtimeEventType.ISSUE_PENDING_CLOSURE,
                 savedIssue
         );
+
+        notificationService.notifyClosureSubmitted(savedIssue);
 
         return mapToDetailedResponse(savedIssue);
     }
@@ -691,6 +700,8 @@ public class IssueService {
                 RealtimeEventType.ISSUE_ESCALATED,
                 savedIssue
         );
+
+        notificationService.notifyIssueEscalated(savedIssue);
 
         return mapToDetailedResponse(savedIssue);
     }

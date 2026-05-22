@@ -1,9 +1,10 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Shield,
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Download,
   LogOut,
   Trash2,
   Users,
@@ -16,6 +17,7 @@ import { Client } from "@stomp/stompjs";
 import { toast } from "sonner";
 
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import AdminIssueTable from "./components/AdminIssueTable";
 import ModerationFilters from "./components/ModerationFilters";
 import LiveOperationsFeed from "./components/LiveOperationsFeed";
@@ -49,9 +51,155 @@ function getSlaState(issue) {
   return "ON_TRACK";
 }
 
+
+function csvEscape(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  const normalized = String(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  const escaped = normalized.replace(/"/g, '""');
+
+  if (escaped.includes(",") || escaped.includes("\n") || escaped.includes('"')) {
+    return `"${escaped}"`;
+  }
+
+  return escaped;
+}
+
+function downloadTextCsv(csv, filename) {
+  // Prefix BOM so Excel detects UTF-8 correctly.
+  const blob = new Blob(["\ufeff", csv], {
+    type: "text/csv;charset=utf-8;",
+  });
+
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.URL.revokeObjectURL(url);
+}
+
+function buildAdminVisibleIssuesCsv(issues) {
+  const headers = [
+    "Issue ID",
+    "Title",
+    "Category",
+    "Status",
+    "Severity",
+    "Address",
+    "Department",
+    "Assigned Worker",
+    "Created At",
+    "Updated At",
+    "SLA Deadline",
+    "SLA Breached",
+    "Escalated",
+    "Escalation Level",
+    "Escalation Reason",
+    "Rejection Reason",
+    "Resolved At",
+  ];
+
+  const rows = issues.map((issue) => [
+    issue.id,
+    issue.title,
+    issue.category,
+    issue.status,
+    issue.severity,
+    issue.address,
+    issue.assignedDepartment,
+    issue.assignedTo?.name,
+    issue.createdAt,
+    issue.updatedAt,
+    issue.slaDeadline,
+    issue.slaBreached ? "true" : "false",
+    issue.escalationReason || issue.escalatedAt ? "true" : "false",
+    issue.escalationLevel,
+    issue.escalationReason,
+    issue.rejectionReason,
+    issue.resolvedAt,
+  ]);
+
+  return [headers, ...rows]
+    .map((row) => row.map(csvEscape).join(","))
+    .join("\n");
+}
+
+async function downloadBackendFile(url, filename, contentType = "application/octet-stream") {
+  const response = await API.get(url, {
+    responseType: "blob",
+  });
+
+  // Prefix BOM so Excel detects UTF-8 correctly.
+  // CSV cannot store column widths/styles; for true formatted columns we need XLSX export.
+  const blob = new Blob([response.data], {
+    type: contentType,
+  });
+
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.URL.revokeObjectURL(downloadUrl);
+}
+
+
+
+async function readBlobError(error) {
+  const data = error?.response?.data;
+
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      return text || "Request failed.";
+    } catch {
+      return "Request failed.";
+    }
+  }
+
+  if (typeof data === "string") {
+    return data;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  return null;
+}
+
+
+
+function safeCsvFilePart(value) {
+  return String(value || "CivicSense")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "CivicSense";
+}
+
+function todayCsvDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+
 export default function AdminDashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const logout = useAuthStore((state) => state.logout);
 
   const [selectedIssueId, setSelectedIssueId] = useState(null);
@@ -60,10 +208,12 @@ export default function AdminDashboard() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [isDeletingIssue, setIsDeletingIssue] = useState(false);
   const [deleteCandidateIssue, setDeleteCandidateIssue] = useState(null);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
 
   const handleCloseDrawer = () => {
     setSelectedIssueId(null);
     setSelectedIssueSummary(null);
+    setSearchParams({});
   };
 
   const handleLogout = () => {
@@ -80,6 +230,16 @@ export default function AdminDashboard() {
 
     navigate("/login", { replace: true });
   };
+
+
+  useEffect(() => {
+    const notificationIssueId = searchParams.get("issueId");
+
+    if (notificationIssueId) {
+      setSelectedIssueId(notificationIssueId);
+      setSelectedIssueSummary({ id: notificationIssueId });
+    }
+  }, [searchParams]);
 
   const fetchIssues = async () => {
     const response = await API.get("/api/issues?page=0&size=100");
@@ -187,6 +347,44 @@ export default function AdminDashboard() {
   const slaBreachedCount = issues.filter(
     (issue) => getSlaState(issue) === "BREACHED"
   ).length;
+
+
+  const handleExportVisibleIssues = () => {
+    const csv = buildAdminVisibleIssuesCsv(filteredIssues);
+    const suffix = activeFilter === "ALL" ? "all" : activeFilter.toLowerCase();
+
+    downloadTextCsv(csv, `Admin-${safeCsvFilePart(suffix)}-Current-View-${todayCsvDate()}.csv`);
+
+    toast.success("CSV exported", {
+      description: "The current admin table view was exported as CSV.",
+    });
+  };
+
+  const handleExportBackendCsv = async (url, filename, successDescription) => {
+    if (isExportingCsv) return;
+
+    setIsExportingCsv(true);
+
+    try {
+      await downloadBackendFile(url, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+      toast.success("XLSX export started", {
+        description: successDescription || "The XLSX file is downloading.",
+      });
+    } catch (error) {
+      console.error("Admin CSV export failed", error);
+
+      const errorMessage =
+        (await readBlobError(error)) ||
+        "Check that you are logged in as ADMIN and try again.";
+
+      toast.error("Failed to export XLSX", {
+        description: errorMessage,
+      });
+    } finally {
+      setIsExportingCsv(false);
+    }
+  };
 
   const handleSelectIssue = (issue) => {
     setSelectedIssueId(issue.id);
@@ -406,6 +604,8 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <NotificationBell />
+
             <Link
               to="/admin/staff"
               className="
@@ -528,12 +728,96 @@ export default function AdminDashboard() {
 
         <div className="grid grid-cols-12 gap-6">
           <section className="col-span-12 rounded-2xl border border-zinc-800 bg-zinc-900 p-6 lg:col-span-8">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold">Moderation Queue</h2>
-              <p className="text-sm text-zinc-400">
-                AI-flagged and operationally relevant civic reports
-              </p>
+            <div className="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Moderation Queue</h2>
+                <p className="text-sm text-zinc-400">
+                  AI-flagged and operationally relevant civic reports
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportVisibleIssues}
+                  className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+                >
+                  <Download className="h-4 w-4" />
+                  Export Current View
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExportingCsv}
+                  onClick={() =>
+                    handleExportBackendCsv(
+                      "/api/admin/export/issues.xlsx",
+                      `Admin-All-Issues-${todayCsvDate()}.xlsx`,
+                      "All issues CSV is downloading."
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-900/70 bg-blue-950/30 px-3 py-2 text-xs font-medium text-blue-200 transition hover:border-blue-700 hover:bg-blue-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  {isExportingCsv ? "Exporting..." : "Export All XLSX"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExportingCsv}
+                  onClick={() =>
+                    handleExportBackendCsv(
+                      "/api/admin/export/issues.xlsx?slaBreached=true",
+                      `Admin-SLA-Breached-Issues-${todayCsvDate()}.xlsx`,
+                      "SLA breached issues CSV is downloading."
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-red-900/70 bg-red-950/30 px-3 py-2 text-xs font-medium text-red-200 transition hover:border-red-700 hover:bg-red-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  SLA Breached
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExportingCsv}
+                  onClick={() =>
+                    handleExportBackendCsv(
+                      "/api/admin/export/issues.xlsx?escalated=true",
+                      `Admin-Escalated-Issues-${todayCsvDate()}.xlsx`,
+                      "Escalated issues CSV is downloading."
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-orange-900/70 bg-orange-950/30 px-3 py-2 text-xs font-medium text-orange-200 transition hover:border-orange-700 hover:bg-orange-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  Escalated
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExportingCsv}
+                  onClick={() =>
+                    handleExportBackendCsv(
+                      "/api/admin/export/issue-timelines.xlsx",
+                      `Admin-All-Issue-Timelines-${todayCsvDate()}.xlsx`,
+                      "All issue timelines XLSX is downloading."
+                    )
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-900/70 bg-emerald-950/30 px-3 py-2 text-xs font-medium text-emerald-200 transition hover:border-emerald-700 hover:bg-emerald-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Download className="h-4 w-4" />
+                  Audit Timelines
+                </button>
+
+              </div>
             </div>
+
+            {filteredIssues.length === 0 && (
+              <div className="mb-4 rounded-2xl border border-dashed border-zinc-700 bg-zinc-950/40 p-5 text-sm text-zinc-400">
+                No admin issues match the current filters. Clear filters or create a demo report to populate this table.
+              </div>
+            )}
 
             <AdminIssueTable
               issues={filteredIssues}

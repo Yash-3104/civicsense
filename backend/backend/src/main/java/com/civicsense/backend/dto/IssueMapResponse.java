@@ -66,10 +66,7 @@ public class IssueMapResponse {
     private String escalationLevel;
 
     private String rejectionReason;
-
-
-
+    
     private LocalDateTime rejectedAt;
-
 
 }
