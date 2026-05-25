@@ -21,6 +21,7 @@ import java.util.List;
 public class PublicTransparencyService {
 
     private final IssueRepository issueRepository;
+    private final MediaUrlService mediaUrlService;
 
     public PublicTransparencyResponse getTransparencyOverview() {
         List<Issue> issues = issueRepository.findAll();
@@ -194,18 +195,7 @@ public class PublicTransparencyService {
     }
 
     private String buildImageUrl(String mediaUrl) {
-        if (mediaUrl == null || mediaUrl.isBlank()) {
-            return null;
-        }
-
-        if (
-                mediaUrl.startsWith("http://") ||
-                        mediaUrl.startsWith("https://")
-        ) {
-            return mediaUrl;
-        }
-
-        return "http://localhost:8031/uploads/" + mediaUrl;
+        return mediaUrlService.resolveUploadUrl(mediaUrl);
     }
 
     private Double calculateRate(long total, long count) {

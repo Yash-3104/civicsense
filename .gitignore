@@ -1,43 +1,91 @@
-# Compiled class file
+# =========================
+# Java / Spring Boot
+# =========================
 *.class
-
-# Log file
-*.log
-
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
 *.nar
 *.ear
+
+target/
+backend/backend/target/
+
+# JVM crash logs
+hs_err_pid*
+replay_pid*
+
+# =========================
+# Logs / Temp
+# =========================
+*.log
+*.tmp
+*.swp
+
+# =========================
+# Archives
+# =========================
 *.zip
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+# =========================
+# BlueJ / J2ME
+# =========================
+*.ctxt
+.mtj.tmp/
 
+# =========================
+# Environment files
+# =========================
 .env
-target/
-.idea/
-.vscode/
-node_modules/
-# ===== Uploads =====
+.env.*
+!.env.example
+!*.env.example
+
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+!frontend/.env.production.example
+
+backend/backend/.env
+backend/backend/.env.*
+!backend/backend/.env.example
+
+ai-service/.env
+ai-service/.env.*
+!ai-service/.env.example
+
+# =========================
+# Build outputs
+# =========================
+frontend/dist/
+
+# =========================
+# Uploads
+# =========================
 uploads/
-# ===== Python =====
+backend/backend/uploads/
+
+# =========================
+# Python
+# =========================
 ai-service/venv/
 ai-service/__pycache__/
 *.pyc
-# ===== OS =====
-.DS_Store
 
-# ===== Misc =====
-*.log
-*.tmp
-*.swp
+# =========================
+# Node
+# =========================
+node_modules/
+frontend/node_modules/
+
+# =========================
+# IDE / Editor
+# =========================
+.idea/
+.vscode/
+
+# =========================
+# OS files
+# =========================
+.DS_Store

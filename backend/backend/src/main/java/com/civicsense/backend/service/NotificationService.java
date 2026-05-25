@@ -347,8 +347,8 @@ public class NotificationService {
 
         if (role == UserRole.CITIZEN) {
             return issueId == null
-                    ? "/?tab=my-reports"
-                    : "/?tab=my-reports&reportId=" + issueId;
+                    ? "/dashboard?tab=my-reports"
+                    : "/dashboard?tab=my-reports&reportId=" + issueId;
         }
 
         return "/";

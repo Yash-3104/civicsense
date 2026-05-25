@@ -264,7 +264,9 @@ export default function SupervisorDashboard() {
         (await readBlobError(error)) ||
         "Failed to export XLSX. Check supervisor permissions and try again.";
 
-      alert(errorMessage);
+      toast.error("Failed to export XLSX", {
+        description: errorMessage,
+      });
     } finally {
       setExportingCsv(null);
     }

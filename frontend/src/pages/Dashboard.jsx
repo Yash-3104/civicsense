@@ -426,7 +426,7 @@ const CITY_REGIONS = [
 ];
 
 const MAP_FETCH_RADIUS_KM = 50;
-const AI_PREVIEW_URL = "http://localhost:8000/analyze-preview";
+const AI_PREVIEW_URL = import.meta.env.VITE_AI_PREVIEW_URL || "http://localhost:8000/analyze-preview";
 const MAX_UPLOAD_IMAGE_SIZE_BYTES = 1.5 * 1024 * 1024;
 const MAX_UPLOAD_IMAGE_DIMENSION = 1600;
 const IMAGE_UPLOAD_TIMEOUT_MS = 45000;
@@ -2248,12 +2248,16 @@ export default function Dashboard() {
     if (!selectedLocation) return;
 
     if (!form.title.trim()) {
-      alert("Please enter a title");
+      toast.error("Missing title", {
+        description: "Please enter a title before submitting the report.",
+      });
       return;
     }
 
     if (!form.description.trim()) {
-      alert("Please enter a description");
+      toast.error("Missing description", {
+        description: "Please enter a description before submitting the report.",
+      });
       return;
     }
 
@@ -2299,7 +2303,12 @@ export default function Dashboard() {
       if (issueId) openIssueDetail(issueId);
     } catch (err) {
       console.error("Create issue failed", err);
-      alert("Failed to create issue");
+      toast.error("Failed to create issue", {
+        description:
+          err?.response?.data?.message ||
+          err?.response?.data ||
+          "Check the report details and try again.",
+      });
     } finally {
       setIsSubmitting(false);
     }

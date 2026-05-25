@@ -31,6 +31,7 @@ public class CitizenIssueTrackingService {
     private final IssueRepository issueRepository;
     private final IssueActivityRepository issueActivityRepository;
     private final UserRepository userRepository;
+    private final MediaUrlService mediaUrlService;
 
     @Transactional(readOnly = true)
     public List<CitizenReportResponse> getMyReports() {
@@ -344,17 +345,6 @@ public class CitizenIssueTrackingService {
     }
 
     private String buildImageUrl(String mediaUrl) {
-        if (mediaUrl == null || mediaUrl.isBlank()) {
-            return null;
-        }
-
-        if (
-                mediaUrl.startsWith("http://") ||
-                        mediaUrl.startsWith("https://")
-        ) {
-            return mediaUrl;
-        }
-
-        return "http://localhost:8031/uploads/" + mediaUrl;
+        return mediaUrlService.resolveUploadUrl(mediaUrl);
     }
 }

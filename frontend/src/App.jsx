@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import LandingPage from "./pages/LandingPage";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -12,64 +13,60 @@ import PublicTransparencyDashboard from "./pages/public/PublicTransparencyDashbo
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-zinc-950">
       <Routes>
-        {/* Public Transparency Dashboard */}
+        <Route path="/" element={<LandingPage />} />
         <Route path="/transparency" element={<PublicTransparencyDashboard />} />
 
-        {/* Citizen Dashboard */}
         <Route
-          path="/"
+          path="/dashboard"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={["CITIZEN", "ADMIN", "OFFICER", "WORKER", "SUPERVISOR"]}>
               <Dashboard />
             </ProtectedRoute>
           }
         />
 
-        {/* Admin Dashboard */}
         <Route
           path="/admin"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
               <AdminDashboard />
             </ProtectedRoute>
           }
         />
 
-        {/* Staff Management */}
         <Route
           path="/admin/staff"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
               <StaffManagement />
             </ProtectedRoute>
           }
         />
 
-        {/* Supervisor Dashboard */}
         <Route
           path="/supervisor"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={["SUPERVISOR", "ADMIN"]}>
               <SupervisorDashboard />
             </ProtectedRoute>
           }
         />
 
-        {/* Worker Dashboard */}
         <Route
           path="/worker"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={["WORKER", "OFFICER", "ADMIN", "SUPERVISOR"]}>
               <WorkerDashboard />
             </ProtectedRoute>
           }
         />
 
-        {/* Auth Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+
+        <Route path="*" element={<LandingPage />} />
       </Routes>
     </div>
   );

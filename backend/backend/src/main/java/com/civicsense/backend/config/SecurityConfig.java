@@ -2,6 +2,7 @@ package com.civicsense.backend.config;
 
 import com.civicsense.backend.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -20,33 +21,40 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
+
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
 
+    @Value("${app.uploads.public:true}")
+    private boolean uploadsPublic;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        String[] publicMatchers = uploadsPublic
+                ? new String[] {
+                        "/api/auth/**",
+                        "/api/public/**",
+                        "/uploads/**",
+                        "/ws/**"
+                }
+                : new String[] {
+                        "/api/auth/**",
+                        "/api/public/**",
+                        "/ws/**"
+                };
+
         http
                 .cors(cors -> {})
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(
-                                "/api/auth/**",
-                                "/api/public/**",
-                                "/test",
-                                "/uploads/**",
-                                "/ws/**"
-                        ).permitAll()
+                        .requestMatchers(publicMatchers).permitAll()
 
-                        /*
-                         * CSV exports.
-                         * Admin export is already working.
-                         * Supervisor export is moved to /api/export/supervisor/**
-                         * to avoid the /api/supervisor/** matcher conflict causing 403.
-                         */
-                        .requestMatchers(HttpMethod.GET, "/api/admin/export/**").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/export/supervisor/**").authenticated()
+                        .requestMatchers("/api/dev/**").hasRole("ADMIN")
+
+                        .requestMatchers(HttpMethod.GET, "/api/admin/export/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/export/supervisor/**").hasAnyRole("SUPERVISOR", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()
 
                         .requestMatchers("/api/departments", "/api/departments/**").permitAll()
@@ -75,7 +83,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    public PasswordEncoder passwordEncoder() { 
+        return new BCryptPasswordEncoder(); 
+    }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {

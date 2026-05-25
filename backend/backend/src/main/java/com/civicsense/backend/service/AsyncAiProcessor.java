@@ -6,6 +6,7 @@ import com.civicsense.backend.entity.SeverityLevel;
 import com.civicsense.backend.repository.IssueRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AsyncAiProcessor {
 
     private final AiServiceClient aiServiceClient;
@@ -26,13 +28,8 @@ public class AsyncAiProcessor {
 
         try {
 
-            System.out.println(
-                    "\n================ AI PROCESS START ================\n"
-            );
-
-            System.out.println("Issue ID: " + issueId);
-
-            System.out.println("File Path: " + filePath);
+            log.info("Async AI processing started for issue: {}", issueId);
+            log.debug("Async AI file path for issue {}: {}", issueId, filePath);
 
             Issue issue = issueRepository.findById(issueId)
                     .orElseThrow(() ->
@@ -41,7 +38,7 @@ public class AsyncAiProcessor {
             Map<String, Object> result =
                     aiServiceClient.analyzeImageFromPath(filePath);
 
-            System.out.println("AI RESULT: " + result);
+            log.debug("AI result for issue {}: {}", issueId, result);
 
             if (result == null) {
                 throw new RuntimeException(
@@ -76,22 +73,17 @@ public class AsyncAiProcessor {
             String aiReasoning =
                     getReasoningText(result);
 
-            System.out.println("AI VALID: " + isValid);
-
-            System.out.println("AI SEVERITY: " + severity);
-
-            System.out.println("AI DESCRIPTION: " + aiSummary);
-
-            System.out.println("AI CAPTION: " + rawCaption);
+            log.debug("AI valid for issue {}: {}", issueId, isValid);
+            log.debug("AI severity for issue {}: {}", issueId, severity);
+            log.debug("AI description for issue {}: {}", issueId, aiSummary);
+            log.debug("AI caption for issue {}: {}", issueId, rawCaption);
 
             if (aiSummary == null || aiSummary.isBlank()) {
 
                 aiSummary =
                         "AI analysis completed successfully.";
 
-                System.out.println(
-                        "Fallback AI description used."
-                );
+                log.debug("Fallback AI description used for issue: {}", issueId);
             }
 
             issue.setAiDescription(aiSummary);
@@ -123,27 +115,13 @@ public class AsyncAiProcessor {
             Issue savedIssue =
                     issueRepository.save(issue);
 
-            System.out.println(
-                    "SAVED AI DESCRIPTION: " +
-                    savedIssue.getAiDescription()
-            );
-
-            System.out.println(
-                    "AI CONFIDENCE SCORE: " +
-                    savedIssue.getAiConfidenceScore()
-            );
-
-            System.out.println(
-                    "\n================ AI PROCESS SUCCESS ================\n"
-            );
+            log.debug("Saved AI description for issue {}: {}", issueId, savedIssue.getAiDescription());
+            log.debug("AI confidence score for issue {}: {}", issueId, savedIssue.getAiConfidenceScore());
+            log.info("Async AI processing completed for issue: {}", issueId);
 
         } catch (Exception e) {
 
-            System.out.println(
-                    "\n================ AI PROCESS FAILED ================\n"
-            );
-
-            e.printStackTrace();
+            log.error("Async AI processing failed for issue: {}", issueId, e);
         }
     }
 

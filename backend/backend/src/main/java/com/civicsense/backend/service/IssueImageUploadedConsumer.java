@@ -7,6 +7,7 @@ import com.civicsense.backend.entity.IssueStatus;
 import com.civicsense.backend.repository.IssueRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class IssueImageUploadedConsumer {
 
     private final AiServiceClient aiServiceClient;
@@ -31,11 +33,9 @@ public class IssueImageUploadedConsumer {
 
         try {
 
-            System.out.println();
-            System.out.println("================ KAFKA AI PROCESS START ================");
-            System.out.println("Issue ID: " + event.getIssueId());
-            System.out.println("File path: " + event.getFilePath());
-            System.out.println("File name: " + event.getFileName());
+            log.info("Kafka AI processing started for issue: {}", event.getIssueId());
+            log.debug("Kafka AI image file path: {}", event.getFilePath());
+            log.debug("Kafka AI image file name: {}", event.getFileName());
 
             Issue issue = issueRepository.findById(event.getIssueId())
                     .orElseThrow(() ->
@@ -44,7 +44,7 @@ public class IssueImageUploadedConsumer {
             Map<String, Object> result =
                     aiServiceClient.analyzeImageFromPath(event.getFilePath());
 
-            System.out.println("AI RESULT: " + result);
+            log.debug("AI result for issue {}: {}", event.getIssueId(), result);
 
             if (result == null) {
                 throw new RuntimeException("AI service returned null response");
@@ -80,11 +80,11 @@ public class IssueImageUploadedConsumer {
             String aiReasoning =
                     getReasoningText(result);
 
-            System.out.println("AI valid issue: " + isValid);
-            System.out.println("AI severity: " + severity);
-            System.out.println("AI description: " + aiDescription);
-            System.out.println("AI raw caption: " + rawCaption);
-            System.out.println("AI CLIP label: " + clipLabel);
+            log.debug("AI valid issue for {}: {}", event.getIssueId(), isValid);
+            log.debug("AI severity for {}: {}", event.getIssueId(), severity);
+            log.debug("AI description for {}: {}", event.getIssueId(), aiDescription);
+            log.debug("AI raw caption for {}: {}", event.getIssueId(), rawCaption);
+            log.debug("AI CLIP label for {}: {}", event.getIssueId(), clipLabel);
 
             if (aiDescription == null || aiDescription.isBlank()) {
                 aiDescription = "AI analysis completed successfully.";
@@ -110,10 +110,7 @@ public class IssueImageUploadedConsumer {
                 // Do NOT overwrite the citizen/admin selected severity here.
                 // AI severity is stored as confidence metadata and used for suggestions,
                 // but the final issue severity remains the user-selected operational value.
-                System.out.println(
-                        "AI suggested severity ignored for final issue severity: " +
-                                severity
-                );
+                log.debug("AI suggested severity ignored for final issue severity: {}", severity);
             }
 
             issue.setUpdatedAt(LocalDateTime.now());
@@ -129,36 +126,15 @@ public class IssueImageUploadedConsumer {
                     duplicateRefinedIssue
             );
 
-            System.out.println(
-                    "SAVED AI DESCRIPTION: " +
-                            duplicateRefinedIssue.getAiDescription()
-            );
-
-            System.out.println(
-                    "AI CONFIDENCE SCORE: " +
-                            duplicateRefinedIssue.getAiConfidenceScore()
-            );
-
-            System.out.println(
-                    "DUPLICATE LIKELIHOOD AFTER AI: " +
-                            duplicateRefinedIssue.getDuplicateLikelihood()
-            );
-
-            System.out.println(
-                    "POSSIBLE DUPLICATE ISSUE ID AFTER AI: " +
-                            duplicateRefinedIssue.getPossibleDuplicateIssueId()
-            );
-
-            System.out.println("Kafka AI processing completed for issue: " + event.getIssueId());
-            System.out.println("================ KAFKA AI PROCESS SUCCESS ================");
-            System.out.println();
+            log.debug("Saved AI description for {}: {}", event.getIssueId(), duplicateRefinedIssue.getAiDescription());
+            log.debug("AI confidence score for {}: {}", event.getIssueId(), duplicateRefinedIssue.getAiConfidenceScore());
+            log.debug("Duplicate likelihood after AI for {}: {}", event.getIssueId(), duplicateRefinedIssue.getDuplicateLikelihood());
+            log.debug("Possible duplicate issue id after AI for {}: {}", event.getIssueId(), duplicateRefinedIssue.getPossibleDuplicateIssueId());
+            log.info("Kafka AI processing completed for issue: {}", event.getIssueId());
 
         } catch (Exception e) {
 
-            System.out.println();
-            System.out.println("================ KAFKA AI PROCESS FAILED ================");
-            e.printStackTrace();
-            System.out.println();
+            log.error("Kafka AI processing failed for issue: {}", event.getIssueId(), e);
         }
     }
 

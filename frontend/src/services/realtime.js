@@ -1,7 +1,7 @@
 import { Client } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 
-const SOCKET_URL = "http://localhost:8031/ws";
+const SOCKET_URL = import.meta.env.VITE_WS_URL || "http://localhost:8031/ws";
 const ISSUE_TOPIC = "/topic/issues";
 
 let stompClient = null;
@@ -30,7 +30,9 @@ export function connectIssueSocket({
     },
 
     onConnect: () => {
-      console.log("Connected to CivicSense realtime socket");
+      if (import.meta.env.DEV) {
+        console.log("Connected to CivicSense realtime socket");
+      }
 
       if (onConnect) {
         onConnect();
@@ -52,7 +54,9 @@ export function connectIssueSocket({
     },
 
     onDisconnect: () => {
-      console.log("Disconnected from CivicSense realtime socket");
+      if (import.meta.env.DEV) {
+        console.log("Disconnected from CivicSense realtime socket");
+      }
 
       if (onDisconnect) {
         onDisconnect();
@@ -120,7 +124,9 @@ export function connectNotificationSocket({
     },
 
     onConnect: () => {
-      console.log("Connected to CivicSense notification socket");
+      if (import.meta.env.DEV) {
+        console.log("Connected to CivicSense notification socket");
+      }
 
       if (onConnect) {
         onConnect();
@@ -130,7 +136,9 @@ export function connectNotificationSocket({
         try {
           const event = JSON.parse(message.body);
 
-          console.log("Realtime notification event:", event);
+          if (import.meta.env.DEV) {
+            console.log("Realtime notification event:", event);
+          }
 
           if (onNotificationEvent) {
             onNotificationEvent(event);
@@ -142,7 +150,9 @@ export function connectNotificationSocket({
     },
 
     onDisconnect: () => {
-      console.log("Disconnected from CivicSense notification socket");
+      if (import.meta.env.DEV) {
+        console.log("Disconnected from CivicSense notification socket");
+      }
 
       if (onDisconnect) {
         onDisconnect();

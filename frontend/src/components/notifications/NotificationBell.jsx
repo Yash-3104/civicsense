@@ -49,7 +49,7 @@ function getNotificationDestination(notification, role) {
     case "OFFICER":
       return `/worker${query}`;
     case "CITIZEN":
-      return issueId ? `/?tab=my-reports&reportId=${issueId}` : "/?tab=my-reports";
+      return issueId ? `/dashboard?tab=my-reports&reportId=${issueId}` : "/dashboard?tab=my-reports";
     default:
       return "/";
   }

@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import io
+import os
 
 from services.analysis_service import analyze_image, analyze_preview_image
 from services.duplicate_service import (
@@ -19,11 +20,23 @@ class DuplicateCheckRequest(BaseModel):
 
 app = FastAPI(title="CivicSense AI Service")
 
+
+def get_allowed_origins() -> list[str]:
+    raw_origins = os.getenv(
+        "AI_CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000"
+    )
+
+    return [
+        origin.strip()
+        for origin in raw_origins.split(",")
+        if origin.strip()
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-    ],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

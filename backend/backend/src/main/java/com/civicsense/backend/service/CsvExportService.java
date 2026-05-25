@@ -15,6 +15,7 @@ import com.civicsense.backend.security.CustomUserDetails;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,8 @@ public class CsvExportService {
             Boolean slaBreached,
             Boolean escalated
     ) {
+        validateAdminExportAccess(getCurrentUser());
+
         List<Issue> issues = issueRepository.findAll()
                 .stream()
                 .filter(issue -> category == null || issue.getCategory() == category)
@@ -298,6 +301,16 @@ public class CsvExportService {
                 });
 
         return csv.build();
+    }
+
+    private void validateAdminExportAccess(User currentUser) {
+        if (currentUser == null || currentUser.getRole() == null) {
+            throw new AccessDeniedException("Authenticated user not found");
+        }
+
+        if (currentUser.getRole() != UserRole.ADMIN) {
+            throw new AccessDeniedException("Only admin can export all issue data");
+        }
     }
 
     private List<Issue> getSupervisorScopedIssues(User currentUser) {

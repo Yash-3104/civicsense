@@ -1,8 +1,19 @@
 import axios from "axios";
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8031";
+
 const API = axios.create({
-  baseURL: "http://localhost:8031",
+  baseURL: API_BASE_URL,
+  timeout: 30000,
 });
+
+function clearInvalidAuthState() {
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("user");
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+}
 
 function getValidToken() {
   const token =
@@ -18,16 +29,14 @@ function getValidToken() {
     token === "null" ||
     token === "[object Object]"
   ) {
-    sessionStorage.removeItem("token");
-    localStorage.removeItem("token");
+    clearInvalidAuthState();
     return null;
   }
 
   const dotCount = (token.match(/\./g) || []).length;
 
   if (dotCount !== 2) {
-    sessionStorage.removeItem("token");
-    localStorage.removeItem("token");
+    clearInvalidAuthState();
     return null;
   }
 
@@ -45,5 +54,20 @@ API.interceptors.request.use((config) => {
 
   return config;
 });
+
+API.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const currentPath = window.location.pathname;
+
+    if (status === 401 && currentPath !== "/login") {
+      clearInvalidAuthState();
+      window.location.href = "/login";
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default API;

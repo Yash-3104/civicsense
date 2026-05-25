@@ -34,6 +34,7 @@ import com.civicsense.backend.specification.IssueSpecification;
 import com.civicsense.backend.util.DepartmentRouting;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -54,6 +55,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class IssueService {
 
     private static final double DUPLICATE_WARNING_THRESHOLD = 0.55;
@@ -68,6 +70,7 @@ public class IssueService {
     private final IssueActivityService issueActivityService;
     private final WorkerService workerService;
     private final NotificationService notificationService;
+    private final MediaUrlService mediaUrlService;
 
     public IssueResponse createIssue(CreateIssueRequest request) {
 
@@ -534,7 +537,7 @@ public class IssueService {
 
             } catch (Exception e) {
 
-                e.printStackTrace();
+                log.error("Resolution image upload failed for issue: {}", issue.getId(), e);
 
                 throw new RuntimeException(
                         "Resolution image upload failed"
@@ -1169,7 +1172,7 @@ public class IssueService {
     private Issue enrichDuplicateLikelihood(Issue sourceIssue) {
 
         try {
-            System.out.println("DUPLICATE CHECK START: " + sourceIssue.getId());
+            log.debug("Duplicate check started for issue: {}", sourceIssue.getId());
 
             List<Issue> nearbyIssues =
                     issueRepository.findNearbyIssues(
@@ -1178,7 +1181,7 @@ public class IssueService {
                             0.5
                     );
 
-            System.out.println("Nearby issues found: " + nearbyIssues.size());
+            log.debug("Nearby issues found for duplicate check: {}", nearbyIssues.size());
 
             List<Issue> candidates =
                     nearbyIssues.stream()
@@ -1196,7 +1199,7 @@ public class IssueService {
                             )
                             .toList();
 
-            System.out.println("Duplicate candidates found: " + candidates.size());
+            log.debug("Duplicate candidates found: {}", candidates.size());
 
             if (candidates.isEmpty()) {
                 sourceIssue.setDuplicateLikelihood(0.0);
@@ -1212,7 +1215,7 @@ public class IssueService {
                             .map(this::buildSemanticDuplicateText)
                             .toList();
 
-            System.out.println("Source duplicate text: " + sourceText);
+            log.debug("Source duplicate text: {}", sourceText);
 
             List<Double> semanticScores =
                     aiServiceClient.checkDuplicateSimilarity(
@@ -1220,7 +1223,7 @@ public class IssueService {
                             candidateTexts
                     );
 
-            System.out.println("Semantic scores: " + semanticScores);
+            log.debug("Semantic duplicate scores: {}", semanticScores);
 
             double bestSemanticScore = 0.0;
             Issue bestCandidate = null;
@@ -1275,11 +1278,11 @@ public class IssueService {
                     sourceIssue.setPossibleDuplicateIssueId(null);
                 }
 
-                System.out.println("Best candidate: " + bestCandidate.getId());
-                System.out.println("Best semantic score: " + bestSemanticScore);
-                System.out.println("Geo score: " + geoScore);
-                System.out.println("Time score: " + timeScore);
-                System.out.println("Final duplicate likelihood: " + duplicateLikelihood);
+                log.debug("Best duplicate candidate: {}", bestCandidate.getId());
+                log.debug("Best semantic score: {}", bestSemanticScore);
+                log.debug("Geo score: {}", geoScore);
+                log.debug("Time score: {}", timeScore);
+                log.debug("Final duplicate likelihood: {}", duplicateLikelihood);
 
             } else {
                 sourceIssue.setPossibleDuplicateIssueId(null);
@@ -1293,10 +1296,7 @@ public class IssueService {
 
         } catch (Exception e) {
 
-            System.out.println(
-                    "Duplicate semantic check failed, using fallback: " +
-                            e.getMessage()
-            );
+            log.debug("Duplicate semantic check failed, using fallback: {}", e.getMessage());
 
             DuplicateFallbackResult fallback =
                     calculateFallbackDuplicateLikelihood(sourceIssue);
@@ -1521,19 +1521,7 @@ public class IssueService {
     }
 
     private String buildImageUrl(String mediaUrl) {
-
-        if (mediaUrl == null || mediaUrl.isBlank()) {
-            return null;
-        }
-
-        if (
-                mediaUrl.startsWith("http://") ||
-                        mediaUrl.startsWith("https://")
-        ) {
-            return mediaUrl;
-        }
-
-        return "http://localhost:8031/uploads/" + mediaUrl;
+        return mediaUrlService.resolveUploadUrl(mediaUrl);
     }
 
     private List<String> getMediaUrls(Issue issue) {

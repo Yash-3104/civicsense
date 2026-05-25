@@ -12,9 +12,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import API from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import SockJS from "sockjs-client";
-import { Client } from "@stomp/stompjs";
 import { toast } from "sonner";
+import {
+  connectIssueSocket,
+  disconnectIssueSocket,
+} from "@/services/realtime";
 
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import NotificationBell from "@/components/notifications/NotificationBell";
@@ -474,105 +476,91 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    const socket = new SockJS("http://localhost:8031/ws");
+    connectIssueSocket({
+      onIssueEvent: (payload) => {
+        const isResolvedEvent =
+          payload.type === "ISSUE_RESOLVED" ||
+          (payload.type === "ISSUE_UPDATED" &&
+            payload.status === "RESOLVED");
 
-    const stompClient = new Client({
-      webSocketFactory: () => socket,
-      reconnectDelay: 5000,
-      onConnect: () => {
-        stompClient.subscribe("/topic/issues", (message) => {
-          try {
-            const payload = JSON.parse(message.body);
+        const isPendingClosureEvent =
+          payload.type === "ISSUE_PENDING_CLOSURE" ||
+          (payload.type === "ISSUE_UPDATED" &&
+            payload.status === "PENDING_CLOSURE");
 
-            const isResolvedEvent =
-              payload.type === "ISSUE_RESOLVED" ||
-              (payload.type === "ISSUE_UPDATED" &&
-                payload.status === "RESOLVED");
+        const isEscalatedEvent = payload.type === "ISSUE_ESCALATED";
 
-            const isPendingClosureEvent =
-              payload.type === "ISSUE_PENDING_CLOSURE" ||
-              (payload.type === "ISSUE_UPDATED" &&
-                payload.status === "PENDING_CLOSURE");
+        const eventType = isResolvedEvent
+          ? "ISSUE_RESOLVED"
+          : isPendingClosureEvent
+          ? "ISSUE_PENDING_CLOSURE"
+          : isEscalatedEvent
+          ? "ISSUE_ESCALATED"
+          : payload.type || "SYSTEM_EVENT";
 
-            const isEscalatedEvent = payload.type === "ISSUE_ESCALATED";
+        const event = {
+          type: eventType,
+          timestamp: payload.timestamp || new Date().toISOString(),
+          message:
+            eventType === "NEW_ISSUE"
+              ? `New issue reported: ${payload.title || "Untitled issue"}`
+              : eventType === "AI_ANALYSIS_COMPLETED"
+              ? `AI analysis completed for ${
+                  payload.title || "the selected issue"
+                }`
+              : eventType === "ISSUE_PENDING_CLOSURE"
+              ? `Closure review requested: ${
+                  payload.title || "the selected issue"
+                }`
+              : eventType === "ISSUE_RESOLVED"
+              ? `Issue closure approved: ${
+                  payload.title || "the selected issue"
+                }`
+              : eventType === "ISSUE_ASSIGNED"
+              ? `Issue assigned to operations: ${
+                  payload.title || "the selected issue"
+                }`
+              : eventType === "ISSUE_ESCALATED"
+              ? `SLA escalated: ${payload.title || "the selected issue"}`
+              : eventType === "ISSUE_UPDATED"
+              ? `Issue updated${payload.status ? ` to ${payload.status}` : ""}`
+              : eventType === "ISSUE_DELETED"
+              ? "Issue removed from the system"
+              : "Realtime civic event received.",
+          issueTitle: payload.title,
+        };
 
-            const eventType = isResolvedEvent
-              ? "ISSUE_RESOLVED"
-              : isPendingClosureEvent
-              ? "ISSUE_PENDING_CLOSURE"
-              : isEscalatedEvent
-              ? "ISSUE_ESCALATED"
-              : payload.type || "SYSTEM_EVENT";
+        setLiveEvents((prev) => [event, ...prev].slice(0, 20));
 
-            const event = {
-              type: eventType,
-              timestamp: payload.timestamp || new Date().toISOString(),
-              message:
-                eventType === "NEW_ISSUE"
-                  ? `New issue reported: ${payload.title || "Untitled issue"}`
-                  : eventType === "AI_ANALYSIS_COMPLETED"
-                  ? `AI analysis completed for ${
-                      payload.title || "the selected issue"
-                    }`
-                  : eventType === "ISSUE_PENDING_CLOSURE"
-                  ? `Closure review requested: ${
-                      payload.title || "the selected issue"
-                    }`
-                  : eventType === "ISSUE_RESOLVED"
-                  ? `Issue closure approved: ${
-                      payload.title || "the selected issue"
-                    }`
-                  : eventType === "ISSUE_ASSIGNED"
-                  ? `Issue assigned to operations: ${
-                      payload.title || "the selected issue"
-                    }`
-                  : eventType === "ISSUE_ESCALATED"
-                  ? `SLA escalated: ${payload.title || "the selected issue"}`
-                  : eventType === "ISSUE_UPDATED"
-                  ? `Issue updated${payload.status ? ` to ${payload.status}` : ""}`
-                  : eventType === "ISSUE_DELETED"
-                  ? "Issue removed from the system"
-                  : "Realtime civic event received.",
-              issueTitle: payload.title,
-            };
+        queryClient.invalidateQueries({ queryKey: ["issues"] });
 
-            setLiveEvents((prev) => [event, ...prev].slice(0, 20));
+        if (payload.issueId) {
+          queryClient.invalidateQueries({
+            queryKey: ["admin-issue-detail", payload.issueId],
+          });
 
-            queryClient.invalidateQueries({ queryKey: ["issues"] });
+          queryClient.invalidateQueries({
+            queryKey: ["issue-detail", payload.issueId],
+          });
 
-            if (payload.issueId) {
-              queryClient.invalidateQueries({
-                queryKey: ["admin-issue-detail", payload.issueId],
-              });
-
-              queryClient.invalidateQueries({
-                queryKey: ["issue-detail", payload.issueId],
-              });
-
-              if (selectedIssueId === payload.issueId) {
-                queryClient.invalidateQueries({
-                  queryKey: ["admin-issue-detail", payload.issueId],
-                });
-              }
-
-              if (
-                payload.type === "ISSUE_DELETED" &&
-                selectedIssueId === payload.issueId
-              ) {
-                handleCloseDrawer();
-              }
-            }
-          } catch (error) {
-            console.error("Live feed parse failed", error);
+          if (selectedIssueId === payload.issueId) {
+            queryClient.invalidateQueries({
+              queryKey: ["admin-issue-detail", payload.issueId],
+            });
           }
-        });
+
+          if (
+            payload.type === "ISSUE_DELETED" &&
+            selectedIssueId === payload.issueId
+          ) {
+            handleCloseDrawer();
+          }
+        }
       },
     });
 
-    stompClient.activate();
-
     return () => {
-      stompClient.deactivate();
+      disconnectIssueSocket();
     };
   }, [queryClient, selectedIssueId]);
 
