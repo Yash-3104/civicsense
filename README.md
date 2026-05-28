@@ -1,6 +1,18 @@
 # CivicSense
 
-AI-powered urban issue reporting and governance intelligence platform.
+CivicSense is an AI-powered public infrastructure reporting and governance platform. Citizens can report civic issues on a map with image evidence, while AI-assisted analysis helps with category, verification, duplicate, and severity signals. Admins triage and assign work, workers submit closure evidence, and supervisors monitor department-scoped queues. Public transparency views show safe progress without private notes, with support for local or Cloudinary image storage, WebSocket notifications, and CSV/XLSX audit exports.
+
+## Project overview
+
+- Citizen reporting with map location, image upload, and report tracking
+- AI-assisted verification, duplicate signals, category hints, and severity support
+- Admin triage, worker assignment, worker closure evidence, and supervisor department queues
+- Public transparency dashboard with private feedback/admin notes excluded
+- Local or Cloudinary image storage, live WebSocket notifications, and XLSX/audit exports
+
+## Demo flow
+
+Citizen reports issue with image -> AI assists category/verification -> Admin verifies and assigns -> Worker resolves with closure evidence -> Admin reviews closure -> Citizen submits feedback -> Public transparency dashboard shows safe progress.
 
 ## Prerequisites
 
@@ -27,6 +39,8 @@ backend/backend/.env.example
 Important production variables:
 
 ```txt
+SPRING_PROFILES_ACTIVE
+FLYWAY_ENABLED
 DB_URL
 DB_USER
 DB_PASSWORD
@@ -34,19 +48,14 @@ JWT_SECRET
 PUBLIC_BASE_URL
 CORS_ALLOWED_ORIGINS
 AI_SERVICE_BASE_URL
-SPRING_PROFILES_ACTIVE
 STORAGE_PROVIDER
 CLOUDINARY_CLOUD_NAME
 CLOUDINARY_API_KEY
 CLOUDINARY_API_SECRET
 CLOUDINARY_FOLDER
+UPLOADS_PUBLIC
+KAFKA_BOOTSTRAP_SERVERS
 ```
-
-Image storage defaults to local uploads with `STORAGE_PROVIDER=local`.
-Set `STORAGE_PROVIDER=cloudinary` and provide the Cloudinary variables to store
-new issue and resolution images in Cloudinary. Existing local image records still
-work because backend responses resolve filename-only media values through
-`PUBLIC_BASE_URL/uploads/...`.
 
 Run backend:
 
@@ -86,9 +95,43 @@ npm run dev
 - `/register` -> Citizen registration
 - `/dashboard` -> Citizen dashboard
 - `/admin` -> Admin dashboard
+- `/admin/staff` -> Staff Management
 - `/worker` -> Worker dashboard
 - `/supervisor` -> Supervisor dashboard
 - `/transparency` -> Public transparency
+
+## Demo credentials
+
+Demo credentials depend on your local seed data. The optional local demo seed includes these intentionally demo-only accounts:
+
+- Admin: `demo.admin@civicsense.local`
+- Supervisor: `demo.supervisor@civicsense.local`
+- Worker: `demo.worker@civicsense.local`
+- Citizen: `demo.citizen@civicsense.local`
+- Demo password for the optional seed accounts: `password`
+
+Do not reuse demo credentials in production or commit private passwords.
+
+## Image storage modes
+
+Local upload storage remains the default:
+
+```env
+STORAGE_PROVIDER=local
+UPLOADS_PUBLIC=true
+```
+
+Cloudinary storage is opt-in for newly uploaded issue and resolution images:
+
+```env
+STORAGE_PROVIDER=cloudinary
+CLOUDINARY_CLOUD_NAME=replace-with-cloud-name
+CLOUDINARY_API_KEY=replace-with-api-key
+CLOUDINARY_API_SECRET=replace-with-api-secret
+CLOUDINARY_FOLDER=civicsense
+```
+
+Cloudinary mode stores new display URLs from Cloudinary `secure_url` values. Older local image records still resolve through `PUBLIC_BASE_URL/uploads/...`, and the current AI/Kafka path still uses a local file path. Never commit real Cloudinary credentials.
 
 ## Manual SQL setup
 
@@ -122,6 +165,10 @@ Use:
 ```txt
 docs/PRODUCTION_READINESS_SMOKE_TESTS.md
 ```
+
+## Before Docker Compose V1
+
+Docker Compose V1 is the next phase. The repository currently supports manual local startup for the backend, frontend, AI service, database, and optional Kafka testing.
 
 ## Production profile note
 

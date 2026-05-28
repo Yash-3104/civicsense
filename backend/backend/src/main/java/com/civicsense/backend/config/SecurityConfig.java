@@ -56,6 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/admin/export/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/export/supervisor/**").hasAnyRole("SUPERVISOR", "ADMIN")
                         .requestMatchers("/api/notifications/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/issues/**").hasRole("ADMIN")
 
                         .requestMatchers("/api/departments", "/api/departments/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

@@ -13,7 +13,8 @@ public class ProductionConfigValidator {
 
     private static final Set<String> DEV_JWT_PLACEHOLDERS = Set.of(
             "civicsense_dev_secret_change_before_production_please_123456789",
-            "change-this-before-production-use-a-long-random-secret"
+            "change-this-before-production-use-a-long-random-secret",
+            "replace-with-long-random-jwt-secret"
     );
 
     @Value("${jwt.secret:}")

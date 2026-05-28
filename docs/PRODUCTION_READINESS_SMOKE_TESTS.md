@@ -45,20 +45,14 @@ Expected:
 - app can reach `VITE_API_BASE_URL`
 - WebSocket uses `VITE_WS_URL`
 
-## 4. Auth
+## 4. Auth and routes
 
-Login:
+- Landing page opens
+- `/login` and `/register` fit the viewport on desktop and mobile
+- Role redirects work after login
+- Register always creates `CITIZEN`, even if a role is sent manually
 
-```http
-POST http://localhost:8031/api/auth/login
-```
-
-Expected:
-
-- valid user returns `200`
-- invalid password returns clean JSON error
-
-Register:
+API check:
 
 ```http
 POST http://localhost:8031/api/auth/register
@@ -70,9 +64,24 @@ Expected:
 
 - account is still created as `CITIZEN`
 
-## 5. RBAC
+## 5. Citizen
 
-Citizen token:
+- Create issue with image
+- AI preview/analysis works
+- My Reports shows the original report image for unresolved issues
+- Resolved reports show before/after evidence
+- Citizen can submit feedback after resolution
+
+## 6. Admin
+
+- Verify issue
+- Assign worker
+- Delete requires typed `DELETE` confirmation
+- Export current view
+- XLSX export works
+- Timeline export works
+
+API check:
 
 ```http
 GET http://localhost:8031/api/admin/export/issues.xlsx
@@ -80,19 +89,71 @@ GET http://localhost:8031/api/admin/export/issues.xlsx
 
 Expected:
 
-- `403`
+- citizen token returns `403`
+- admin token downloads the file
 
-Admin token:
+## 7. Worker
 
-```http
-GET http://localhost:8031/api/admin/export/issues.xlsx
-```
+- Assigned task appears
+- Worker can start assigned task
+- Worker can submit closure evidence
+- Closure moves to admin review instead of final public closure
+
+## 8. Supervisor
+
+- Mapped department tasks only
+- Mapped new issue notification appears
+- Supervisor note works
+- Exports work
+- Supervisor cannot see unmapped department data
+
+## 9. Notifications and WebSocket
+
+Trigger:
+
+- new issue
+- assignment
+- escalation
+- closure submission
+- feedback
 
 Expected:
 
-- file downloads
+- WebSocket live status works
+- notification appears
+- notification bell updates
+- clicking notification opens the correct drawer
+- mark read works
+- mark all read works
+- clear read works
 
-## 6. Dev-only endpoints
+## 10. Public transparency
+
+- Public page works without login
+- Public issue drawer image works
+- Private citizen feedback is not exposed
+- Private admin or supervisor notes are not exposed
+- Public view shows safe progress only
+
+## 11. Image storage
+
+- Local mode works with `STORAGE_PROVIDER=local`
+- Cloudinary mode works with `STORAGE_PROVIDER=cloudinary`
+- Old local images still resolve
+- Cloudinary images load from `secure_url`
+- AI/Kafka `filePath` still works while Cloudinary mode keeps local temp files
+- Uploaded report and closure evidence reject non-image files
+
+## 12. AI service URL
+
+Run AI preview / duplicate flow.
+
+Expected:
+
+- backend calls `${AI_SERVICE_BASE_URL}/analyze`
+- backend calls `${AI_SERVICE_BASE_URL}/duplicate-check`
+
+## 13. Dev-only endpoints
 
 With dev profile and admin token:
 
@@ -108,44 +169,16 @@ With prod profile:
 
 - endpoint should not exist
 
-## 7. Media URLs
+## 14. Security smoke
 
-Open:
+- Citizen cannot access admin endpoints
+- Citizen cannot delete reports through the API
+- Supervisor cannot access unmapped department data
+- `/api/dev/**` is dev-only/admin-protected
+- CORS allowed origins are explicit when credentials are enabled
+- No real secrets are committed
 
-- citizen map drawer
-- citizen My Reports drawer
-- public transparency drawer
-
-Expected:
-
-- uploaded images still load
-- image URLs are based on `PUBLIC_BASE_URL`
-
-## 8. AI service URL
-
-Run AI preview / duplicate flow.
-
-Expected:
-
-- backend calls `${AI_SERVICE_BASE_URL}/analyze`
-- backend calls `${AI_SERVICE_BASE_URL}/duplicate-check`
-
-## 9. Notifications and WebSocket
-
-Trigger:
-
-- new issue
-- assignment
-- escalation
-- feedback
-
-Expected:
-
-- notification appears
-- notification bell updates
-- clicking notification opens issue/report drawer
-
-## 10. Final end-to-end
+## 15. Final end-to-end
 
 Run one full flow:
 

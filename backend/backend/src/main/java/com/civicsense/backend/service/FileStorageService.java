@@ -171,13 +171,28 @@ public class FileStorageService {
 
         String contentType = file.getContentType();
 
-        if (
-                contentType != null &&
-                        !contentType.isBlank() &&
-                        !contentType.toLowerCase(Locale.ROOT).startsWith("image/")
-        ) {
+        if (!isAllowedImageContentType(contentType)) {
             throw new IllegalArgumentException("Only image uploads are supported");
         }
+    }
+
+    private boolean isAllowedImageContentType(String contentType) {
+        if (isBlank(contentType)) {
+            return false;
+        }
+
+        return switch (contentType.trim().toLowerCase(Locale.ROOT)) {
+            case "image/jpeg",
+                    "image/jpg",
+                    "image/png",
+                    "image/gif",
+                    "image/webp",
+                    "image/bmp",
+                    "image/tiff",
+                    "image/heic",
+                    "image/heif" -> true;
+            default -> false;
+        };
     }
 
     private String buildSafeFileName(MultipartFile file) {
@@ -266,7 +281,6 @@ public class FileStorageService {
             case "image/gif" -> ".gif";
             case "image/webp" -> ".webp";
             case "image/bmp" -> ".bmp";
-            case "image/svg+xml" -> ".svg";
             case "image/tiff" -> ".tiff";
             case "image/heic" -> ".heic";
             case "image/heif" -> ".heif";

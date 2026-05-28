@@ -282,13 +282,11 @@ public class IssueService {
                         );
 
         boolean canDeleteIssue =
-                currentUser.getRole() == UserRole.ADMIN ||
-                        currentUser.getRole() == UserRole.SUPERVISOR ||
-                        currentUser.getRole() == UserRole.OFFICER;
+                currentUser.getRole() == UserRole.ADMIN;
 
         if (!canDeleteIssue) {
             throw new RuntimeException(
-                    "Only admin, supervisor, or officer can delete issues"
+                    "Only admins can delete issues"
             );
         }
     }
