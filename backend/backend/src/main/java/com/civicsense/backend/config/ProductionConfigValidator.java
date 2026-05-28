@@ -25,6 +25,18 @@ public class ProductionConfigValidator {
     @Value("${app.cors.allowed-origins:}")
     private String corsAllowedOrigins;
 
+    @Value("${app.storage.provider:local}")
+    private String storageProvider;
+
+    @Value("${cloudinary.cloud-name:}")
+    private String cloudinaryCloudName;
+
+    @Value("${cloudinary.api-key:}")
+    private String cloudinaryApiKey;
+
+    @Value("${cloudinary.api-secret:}")
+    private String cloudinaryApiSecret;
+
     @PostConstruct
     public void validateProductionConfig() {
         if (isBlank(jwtSecret)) {
@@ -41,6 +53,20 @@ public class ProductionConfigValidator {
 
         if (isBlank(corsAllowedOrigins)) {
             throw new IllegalStateException("Production config error: CORS_ALLOWED_ORIGINS is required and cannot be blank.");
+        }
+
+        if ("cloudinary".equalsIgnoreCase(storageProvider)) {
+            if (isBlank(cloudinaryCloudName)) {
+                throw new IllegalStateException("Production config error: CLOUDINARY_CLOUD_NAME is required when STORAGE_PROVIDER=cloudinary.");
+            }
+
+            if (isBlank(cloudinaryApiKey)) {
+                throw new IllegalStateException("Production config error: CLOUDINARY_API_KEY is required when STORAGE_PROVIDER=cloudinary.");
+            }
+
+            if (isBlank(cloudinaryApiSecret)) {
+                throw new IllegalStateException("Production config error: CLOUDINARY_API_SECRET is required when STORAGE_PROVIDER=cloudinary.");
+            }
         }
     }
 

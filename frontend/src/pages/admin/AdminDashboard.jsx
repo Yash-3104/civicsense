@@ -210,6 +210,7 @@ export default function AdminDashboard() {
   const [liveEvents, setLiveEvents] = useState([]);
   const [isDeletingIssue, setIsDeletingIssue] = useState(false);
   const [deleteCandidateIssue, setDeleteCandidateIssue] = useState(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isExportingCsv, setIsExportingCsv] = useState(false);
 
   const handleCloseDrawer = () => {
@@ -402,18 +403,20 @@ export default function AdminDashboard() {
 
   const handleRequestDeleteIssue = (issue) => {
     if (!issue || isDeletingIssue) return;
+    setDeleteConfirmationText("");
     setDeleteCandidateIssue(issue);
   };
 
   const handleCancelDeleteIssue = () => {
     if (isDeletingIssue) return;
+    setDeleteConfirmationText("");
     setDeleteCandidateIssue(null);
   };
 
   const handleConfirmDeleteIssue = async () => {
     const issueId = deleteCandidateIssue?.id;
 
-    if (!issueId || isDeletingIssue) return;
+    if (!issueId || isDeletingIssue || deleteConfirmationText !== "DELETE") return;
 
     setIsDeletingIssue(true);
 
@@ -421,7 +424,7 @@ export default function AdminDashboard() {
       await API.delete(`/api/issues/${issueId}`);
 
       toast.success("Issue deleted", {
-        description: "The issue was removed from admin and citizen map views.",
+        description: "The issue was removed from dashboards, exports, public registry, and workflow views.",
       });
 
       queryClient.setQueryData(["issues"], (oldIssues) => {
@@ -454,6 +457,7 @@ export default function AdminDashboard() {
         handleCloseDrawer();
       }
 
+      setDeleteConfirmationText("");
       setDeleteCandidateIssue(null);
 
       await queryClient.invalidateQueries({ queryKey: ["issues"] });
@@ -837,11 +841,10 @@ export default function AdminDashboard() {
                   <section className="rounded-2xl border border-red-900/70 bg-red-950/20 p-4 shadow-sm">
                     <div className="mb-3">
                       <h3 className="text-sm font-semibold text-red-200">
-                        Development Cleanup
+                        Delete Verification
                       </h3>
                       <p className="mt-1 text-xs leading-5 text-red-300/80">
-                        Admin-only delete is enabled temporarily for cleaning test
-                        reports. Later, replace this with delete verification.
+                        Delete requires typed confirmation before the issue is removed from CivicSense records.
                       </p>
                     </div>
 
@@ -881,9 +884,9 @@ export default function AdminDashboard() {
 
       {deleteCandidateIssue && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-red-900/60 bg-zinc-950 p-5 shadow-2xl">
+          <div className="w-full max-w-lg rounded-xl border border-red-900/60 bg-zinc-950 p-5 shadow-2xl">
             <div className="mb-4 flex items-start gap-3">
-              <div className="rounded-xl bg-red-500/15 p-2 text-red-300">
+              <div className="rounded-lg bg-red-500/15 p-2 text-red-300">
                 <Trash2 className="h-5 w-5" />
               </div>
 
@@ -892,19 +895,14 @@ export default function AdminDashboard() {
                   Delete issue from CivicSense?
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  This action removes the report from the admin queue and the citizen map.
-                </p>
-                <p className="mt-2 text-sm leading-6 text-red-300/90">
-                  This is enabled only for development cleanup. Later, replace it with a verified deletion workflow.
+                  Deleting this issue removes it from dashboards, exports, public registry, and workflow views. Use this only for demo cleanup or invalid test data.
                 </p>
               </div>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Issue
-              </p>
-              <p className="mt-1 text-sm font-medium text-zinc-100">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
+              <p className="text-xs font-medium text-zinc-500">Issue title</p>
+              <p className="mt-1 text-sm font-semibold text-zinc-100">
                 {deleteCandidateIssue.title || "Untitled issue"}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
@@ -912,21 +910,36 @@ export default function AdminDashboard() {
               </p>
             </div>
 
+            <div className="mt-4 space-y-2">
+              <label htmlFor="delete-confirmation" className="text-sm font-medium text-zinc-200">
+                Type DELETE to confirm
+              </label>
+              <input
+                id="delete-confirmation"
+                value={deleteConfirmationText}
+                disabled={isDeletingIssue}
+                onChange={(event) => setDeleteConfirmationText(event.target.value)}
+                autoComplete="off"
+                className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-red-400 focus:ring-2 focus:ring-red-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                placeholder="DELETE"
+              />
+            </div>
+
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
                 disabled={isDeletingIssue}
                 onClick={handleCancelDeleteIssue}
-                className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
 
               <button
                 type="button"
-                disabled={isDeletingIssue}
+                disabled={isDeletingIssue || deleteConfirmationText !== "DELETE"}
                 onClick={handleConfirmDeleteIssue}
-                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
               >
                 <Trash2 className="h-4 w-4" />
                 {isDeletingIssue ? "Deleting..." : "Delete issue"}

@@ -16,7 +16,7 @@ public class MediaUrlService {
 
         String value = fileNameOrPath.trim();
 
-        if (value.startsWith("http://") || value.startsWith("https://")) {
+        if (isRemoteUrl(value)) {
             return value;
         }
 
@@ -31,5 +31,13 @@ public class MediaUrlService {
         }
 
         return normalizedBase + "/uploads/" + value;
+    }
+
+    public boolean isRemoteUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+
+        return value.startsWith("http://") || value.startsWith("https://");
     }
 }

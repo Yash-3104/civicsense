@@ -74,7 +74,7 @@ GET /api/dev/role-test/admin
 ## V1 gate
 
 Production Readiness / Bug Polish V1 is complete after the smoke pass succeeds.
-Cloudinary migration should start only after this smoke pass.
+Cloudinary migration V1 follows this smoke pass and keeps local image fallback intact.
 
 Auth UI + MVP landing page polish completed before Cloudinary.
 
@@ -88,4 +88,6 @@ Auth UI + MVP landing page polish completed before Cloudinary.
 - `AdminDashboard.jsx` now uses the shared realtime socket helper instead of an inline SockJS client.
 - AI processing logs now use SLF4J instead of `System.out.println`.
 - `app.uploads.public` / `UPLOADS_PUBLIC` controls whether `/uploads/**` is publicly readable before the later Cloudinary migration.
+- Cloudinary Image Storage Migration V1 adds opt-in `STORAGE_PROVIDER=cloudinary`, stores new public image URLs as Cloudinary `secure_url` values, and keeps temporary local files for the current Kafka/AI path workflow.
 - See `docs/PRODUCTION_DEPLOY_CHECKLIST.md` for deploy env vars, Flyway guidance, services, security checks, and post-deploy verification.
+- See `docs/CLOUDINARY_MIGRATION_V1.md` for Cloudinary mode, local fallback, and manual test steps.

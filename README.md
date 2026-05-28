@@ -35,7 +35,18 @@ PUBLIC_BASE_URL
 CORS_ALLOWED_ORIGINS
 AI_SERVICE_BASE_URL
 SPRING_PROFILES_ACTIVE
+STORAGE_PROVIDER
+CLOUDINARY_CLOUD_NAME
+CLOUDINARY_API_KEY
+CLOUDINARY_API_SECRET
+CLOUDINARY_FOLDER
 ```
+
+Image storage defaults to local uploads with `STORAGE_PROVIDER=local`.
+Set `STORAGE_PROVIDER=cloudinary` and provide the Cloudinary variables to store
+new issue and resolution images in Cloudinary. Existing local image records still
+work because backend responses resolve filename-only media values through
+`PUBLIC_BASE_URL/uploads/...`.
 
 Run backend:
 
@@ -140,6 +151,12 @@ Use the production checklist before deploying:
 docs/PRODUCTION_DEPLOY_CHECKLIST.md
 ```
 
+For Cloudinary migration details, use:
+
+```txt
+docs/CLOUDINARY_MIGRATION_V1.md
+```
+
 Production runs Flyway from `database/migrations` using:
 
 ```properties
@@ -153,6 +170,8 @@ Run the backend from `backend/backend` so this path resolves correctly. Keep man
 ```txt
 .env
 frontend/.env
+backend/backend/.env
+ai-service/.env
 backend/backend/target/
 uploads/
 ```

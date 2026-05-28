@@ -17,13 +17,18 @@ JWT_SECRET=replace-with-long-random-secret
 PUBLIC_BASE_URL=https://api.example.com
 CORS_ALLOWED_ORIGINS=https://app.example.com
 AI_SERVICE_BASE_URL=https://ai.example.com
+STORAGE_PROVIDER=cloudinary
+CLOUDINARY_CLOUD_NAME=replace-with-cloud-name
+CLOUDINARY_API_KEY=replace-with-api-key
+CLOUDINARY_API_SECRET=replace-with-api-secret
+CLOUDINARY_FOLDER=civicsense
 UPLOADS_PUBLIC=true
 KAFKA_BOOTSTRAP_SERVERS=broker:9092
 KAFKA_CONSUMER_GROUP_ID=civicsense-ai-group
 KAFKA_TOPIC_ISSUE_IMAGE_UPLOADED=issue-image-uploaded
 ```
 
-`JWT_SECRET`, `PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` are validated at startup in the `prod` profile.
+`JWT_SECRET`, `PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` are validated at startup in the `prod` profile. When `STORAGE_PROVIDER=cloudinary`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` are also required.
 
 ### Frontend Build
 
@@ -76,8 +81,10 @@ Never run `backend/backend/sql/demo_seed_optional.sql` on production.
 - Confirm `CORS_ALLOWED_ORIGINS` contains only production frontend origins.
 - Keep `.env`, `frontend/.env`, `target/`, `uploads/`, and `ai-service/venv/` out of git.
 - Keep `/api/admin/**`, export endpoints, and staff endpoints behind role-based access.
-- Keep `UPLOADS_PUBLIC=true` only while local uploads are still used. Cloudinary will replace public local uploads in a later hardening pass.
+- Prefer `STORAGE_PROVIDER=cloudinary` for production image storage. `STORAGE_PROVIDER=local` is allowed but local uploads are not ideal for production unless the upload volume is persisted and backed up.
+- Keep `UPLOADS_PUBLIC=true` only while local uploads are still used or old local image records must remain publicly readable.
 - If `UPLOADS_PUBLIC=false`, `/uploads/**` is not publicly permitted; API responses may still contain URLs, but static file access is restricted by security rules.
+- Do not delete the local upload or `cloudinary-temp` folders until the AI image pipeline no longer depends on local file paths.
 
 ## Post-Deploy Verification
 

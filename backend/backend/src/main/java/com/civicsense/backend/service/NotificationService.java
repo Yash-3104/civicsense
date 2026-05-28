@@ -12,6 +12,7 @@ import com.civicsense.backend.repository.NotificationRepository;
 import com.civicsense.backend.repository.UserRepository;
 import com.civicsense.backend.repository.WorkerDepartmentRepository;
 import com.civicsense.backend.security.CustomUserDetails;
+import com.civicsense.backend.util.DepartmentRouting;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,8 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -102,6 +105,53 @@ public class NotificationService {
                 NotificationType.ISSUE_REPORTED,
                 "New civic issue reported",
                 issueTitle(issue) + " was submitted by a citizen."
+        );
+    }
+
+    @Transactional
+    public void notifyMappedSupervisorsNewIssue(Issue issue) {
+        if (issue == null || issue.getCategory() == null) {
+            return;
+        }
+
+        List<Department> departments =
+                DepartmentRouting.getDepartmentsForCategory(issue.getCategory());
+
+        if (departments.isEmpty()) {
+            return;
+        }
+
+        String title =
+                "New issue in your mapped department";
+
+        String message =
+                departments.size() == 1
+                        ? "A new " + formatEnumLabel(issue.getCategory().name()) +
+                                " report may require " +
+                                formatEnumLabel(departments.get(0).name()) +
+                                " review."
+                        : "A new " + formatEnumLabel(issue.getCategory().name()) +
+                                " report may require mapped department review.";
+
+        Set<UUID> notifiedUserIds = new HashSet<>();
+
+        departments.forEach(department ->
+                workerDepartmentRepository.findByDepartment(department)
+                        .stream()
+                        .map(WorkerDepartment::getWorker)
+                        .filter(Objects::nonNull)
+                        .filter(user -> user.getRole() == UserRole.SUPERVISOR)
+                        .filter(user -> user.getId() != null)
+                        .filter(user -> notifiedUserIds.add(user.getId()))
+                        .forEach(user ->
+                                createForUser(
+                                        user,
+                                        issue,
+                                        NotificationType.ISSUE_REPORTED,
+                                        title,
+                                        message
+                                )
+                        )
         );
     }
 
@@ -372,6 +422,36 @@ public class NotificationService {
         }
 
         return user.getEmail() == null ? "A user" : user.getEmail();
+    }
+
+    private String formatEnumLabel(String value) {
+        if (value == null || value.isBlank()) {
+            return "mapped department";
+        }
+
+        String normalized =
+                value.replace("_", " ").toLowerCase();
+
+        StringBuilder builder =
+                new StringBuilder();
+
+        for (String word : normalized.split(" ")) {
+            if (word.isBlank()) {
+                continue;
+            }
+
+            if (builder.length() > 0) {
+                builder.append(" ");
+            }
+
+            builder.append(Character.toUpperCase(word.charAt(0)));
+
+            if (word.length() > 1) {
+                builder.append(word.substring(1));
+            }
+        }
+
+        return builder.length() == 0 ? value : builder.toString();
     }
 
     private User getCurrentUser() {

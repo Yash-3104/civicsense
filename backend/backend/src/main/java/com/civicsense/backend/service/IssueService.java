@@ -47,7 +47,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -115,6 +114,7 @@ public class IssueService {
         );
 
         notificationService.notifyAdminsNewIssue(saved);
+        notificationService.notifyMappedSupervisorsNewIssue(saved);
 
         return mapToDetailedResponse(saved);
     }
@@ -525,15 +525,13 @@ public class IssueService {
 
             try {
 
-                Path savedPath =
-                        fileStorageService.storeFile(image);
-
-                String imageUrl =
-                        buildImageUrl(
-                                savedPath.getFileName().toString()
+                StoredFileResult storedFile =
+                        fileStorageService.storeFileAndReturnResult(
+                                image,
+                                "resolution-evidence"
                         );
 
-                issue.setResolutionImageUrl(imageUrl);
+                issue.setResolutionImageUrl(storedFile.publicUrl());
 
             } catch (Exception e) {
 
@@ -949,19 +947,22 @@ public class IssueService {
         Issue issue = issueRepository.findById(issueId)
                 .orElseThrow(() -> new RuntimeException("Issue not found"));
 
-        Path savedPath =
-                fileStorageService.storeFile(file);
+        StoredFileResult storedFile =
+                fileStorageService.storeFileAndReturnResult(
+                        file,
+                        "issue-reports"
+                );
 
-        String fileName =
-                savedPath.getFileName().toString();
-
-        String fullPath =
-                savedPath.toString();
+        if (storedFile.localPath() == null) {
+            throw new IllegalStateException(
+                    "Uploaded issue image must have a local path for AI processing"
+            );
+        }
 
         IssueMedia media =
                 IssueMedia.builder()
                         .issue(issue)
-                        .mediaUrl(fileName)
+                        .mediaUrl(storedFile.publicUrl())
                         .mediaType(MediaType.IMAGE)
                         .build();
 
@@ -977,8 +978,8 @@ public class IssueService {
         issueEventProducer.publishImageUploaded(
                 IssueImageUploadedEvent.builder()
                         .issueId(issue.getId())
-                        .filePath(fullPath)
-                        .fileName(fileName)
+                        .filePath(storedFile.localPath().toString())
+                        .fileName(storedFile.storageKey())
                         .build()
         );
 
