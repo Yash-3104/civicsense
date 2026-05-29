@@ -224,8 +224,8 @@ const handleNotificationClick = async (notification) => {
     : "relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-950 text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800";
 
   const panelClass = isLight
-    ? "absolute right-0 z-[1000] mt-2 w-[calc(100vw-2rem)] max-w-96 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-    : "absolute right-0 z-[1000] mt-2 w-[calc(100vw-2rem)] max-w-96 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl";
+    ? "absolute right-0 z-[3000] mt-2 w-[calc(100vw-2rem)] max-w-96 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+    : "absolute right-0 z-[3000] mt-2 w-[calc(100vw-2rem)] max-w-96 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl";
 
   return (
     <div className="relative" ref={panelRef}>

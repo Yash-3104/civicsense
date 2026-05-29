@@ -61,6 +61,8 @@ Old local images continue to display because `MediaUrlService` still handles:
 
 Cloudinary `secure_url` values pass through unchanged.
 
+Cloudinary cleanup runs during admin issue deletion for Cloudinary-hosted issue and resolution images. Cleanup failures are logged but do not block issue deletion.
+
 ## AI processing temp files
 
 The current Kafka/AI pipeline still calls `AiServiceClient.analyzeImageFromPath(...)`, so Cloudinary mode keeps a local temp copy under `FILE_UPLOAD_DIR/cloudinary-temp`.

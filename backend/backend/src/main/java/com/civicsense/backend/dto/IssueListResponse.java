@@ -20,6 +20,10 @@ public class IssueListResponse {
 
     private String severity;
 
+    private Double latitude;
+
+    private Double longitude;
+
 
     private String address;
 

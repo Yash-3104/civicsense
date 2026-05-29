@@ -10,6 +10,7 @@ import StaffManagement from "./pages/admin/StaffManagement";
 import WorkerDashboard from "./pages/worker/WorkerDashboard";
 import SupervisorDashboard from "./pages/supervisor/SupervisorDashboard";
 import PublicTransparencyDashboard from "./pages/public/PublicTransparencyDashboard";
+import OperationsMap from "./pages/OperationsMap";
 
 function App() {
   return (
@@ -50,6 +51,15 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["SUPERVISOR", "ADMIN"]}>
               <SupervisorDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/map"
+          element={
+            <ProtectedRoute allowedRoles={["CITIZEN", "ADMIN", "SUPERVISOR", "WORKER", "OFFICER"]}>
+              <OperationsMap />
             </ProtectedRoute>
           }
         />

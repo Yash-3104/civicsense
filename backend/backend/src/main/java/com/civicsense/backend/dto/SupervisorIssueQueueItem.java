@@ -14,6 +14,8 @@ public class SupervisorIssueQueueItem {
     private String status;
     private String severity;
     private String address;
+    private Double latitude;
+    private Double longitude;
     private UserSummary assignedTo;
     private String assignedDepartment;
     private LocalDateTime assignedAt;

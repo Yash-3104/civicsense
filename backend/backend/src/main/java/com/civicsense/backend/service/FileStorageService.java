@@ -10,6 +10,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Locale;
 import java.util.Map;
@@ -68,6 +70,120 @@ public class FileStorageService {
 
         throw new IllegalStateException(
                 "Unsupported storage provider: " + storageProvider
+        );
+    }
+
+    public void deleteRemoteImageIfCloudinaryUrl(String imageUrl) {
+        if (!isCloudinaryImageUrl(imageUrl)) {
+            return;
+        }
+
+        String publicId = extractCloudinaryPublicId(imageUrl);
+
+        if (isBlank(publicId)) {
+            log.warn("Skipping Cloudinary cleanup because public_id could not be extracted");
+            return;
+        }
+
+        try {
+            cloudinary.uploader().destroy(
+                    publicId,
+                    ObjectUtils.asMap(
+                            "resource_type", "image",
+                            "invalidate", true
+                    )
+            );
+
+            log.info("Deleted Cloudinary image public_id={}", publicId);
+        } catch (Exception e) {
+            log.warn(
+                    "Cloudinary cleanup failed for public_id={}",
+                    publicId,
+                    e
+            );
+        }
+    }
+
+    private boolean isCloudinaryImageUrl(String imageUrl) {
+        if (isBlank(imageUrl)) {
+            return false;
+        }
+
+        String value = imageUrl.trim();
+
+        return value.startsWith("https://res.cloudinary.com/") ||
+                (
+                        value.contains("cloudinary.com") &&
+                                value.contains("/image/upload/")
+                );
+    }
+
+    private String extractCloudinaryPublicId(String imageUrl) {
+        if (isBlank(imageUrl)) {
+            return null;
+        }
+
+        String value = imageUrl.trim();
+        String marker = "/image/upload/";
+        int uploadIndex = value.indexOf(marker);
+
+        if (uploadIndex < 0) {
+            return null;
+        }
+
+        String path = value.substring(uploadIndex + marker.length());
+        int queryIndex = path.indexOf('?');
+
+        if (queryIndex >= 0) {
+            path = path.substring(0, queryIndex);
+        }
+
+        int fragmentIndex = path.indexOf('#');
+
+        if (fragmentIndex >= 0) {
+            path = path.substring(0, fragmentIndex);
+        }
+
+        path = path.replaceAll("^/+", "");
+
+        if (path.isBlank()) {
+            return null;
+        }
+
+        String[] segments = path.split("/");
+        int startIndex =
+                segments.length > 0 && segments[0].matches("v\\d+")
+                        ? 1
+                        : 0;
+
+        StringBuilder publicId = new StringBuilder();
+
+        for (int i = startIndex; i < segments.length; i++) {
+            if (segments[i].isBlank()) {
+                continue;
+            }
+
+            if (publicId.length() > 0) {
+                publicId.append('/');
+            }
+
+            publicId.append(segments[i]);
+        }
+
+        if (publicId.length() == 0) {
+            return null;
+        }
+
+        int extensionIndex = publicId.lastIndexOf(".");
+        int slashIndex = publicId.lastIndexOf("/");
+
+        if (extensionIndex > slashIndex) {
+            publicId.setLength(extensionIndex);
+        }
+
+        return URLDecoder.decode(
+                publicId.toString(),
+                StandardCharsets.UTF_8
         );
     }
 

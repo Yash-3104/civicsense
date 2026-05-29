@@ -5,6 +5,7 @@ import {
   Clock,
   Download,
   LogOut,
+  Map,
   RefreshCw,
   Shield,
   Users,
@@ -302,6 +303,13 @@ export default function SupervisorDashboard() {
             <div className="hidden rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-400 md:block">
               {user?.name || "Supervisor"} · {user?.email || "supervisor"}
             </div>
+            <Link
+              to="/map"
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800"
+            >
+              <Map className="h-4 w-4" />
+              Operations Map
+            </Link>
             <div className="flex flex-col items-end gap-1">
               <button
                 type="button"

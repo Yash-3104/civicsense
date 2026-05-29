@@ -77,6 +77,7 @@ Production Readiness / Bug Polish V1 is complete after the smoke pass succeeds.
 Cloudinary migration V1 follows this smoke pass and keeps local image fallback intact.
 
 Auth UI + MVP landing page polish completed before Cloudinary.
+Operations Map V1 is available as a dedicated role-aware map route for location-based issue review. Admins get city-wide operational access, supervisors see mapped-department issues, and Citizen Dashboard links to the citizen-safe map.
 
 ## Pre-production hardening
 

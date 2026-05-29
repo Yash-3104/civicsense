@@ -642,9 +642,28 @@ public class IssueService {
         Issue issue = issueRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Issue not found"));
 
+        cleanupRemoteImagesForDeletedIssue(issue);
+
         issueRepository.delete(issue);
 
         realtimeEventService.publishIssueDeleted(id);
+    }
+
+    private void cleanupRemoteImagesForDeletedIssue(Issue issue) {
+
+        if (issue == null) {
+            return;
+        }
+
+        if (issue.getMedia() != null) {
+            issue.getMedia().stream()
+                    .map(IssueMedia::getMediaUrl)
+                    .forEach(fileStorageService::deleteRemoteImageIfCloudinaryUrl);
+        }
+
+        fileStorageService.deleteRemoteImageIfCloudinaryUrl(
+                issue.getResolutionImageUrl()
+        );
     }
 
 
@@ -1581,6 +1600,8 @@ public class IssueService {
                 .category(issue.getCategory().name())
                 .status(issue.getStatus().name())
                 .severity(issue.getSeverity().name())
+                .latitude(issue.getLatitude())
+                .longitude(issue.getLongitude())
                 .address(issue.getAddress())
                 .createdAt(issue.getCreatedAt())
                 .imageUrl(getPrimaryImageUrl(issue))

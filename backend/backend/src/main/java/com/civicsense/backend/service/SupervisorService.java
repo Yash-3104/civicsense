@@ -275,6 +275,8 @@ public class SupervisorService {
                 .status(issue.getStatus() == null ? null : issue.getStatus().name())
                 .severity(issue.getSeverity() == null ? null : issue.getSeverity().name())
                 .address(issue.getAddress())
+                .latitude(issue.getLatitude())
+                .longitude(issue.getLongitude())
                 .assignedTo(mapUserSummary(issue.getAssignedTo()))
                 .assignedDepartment(issue.getAssignedDepartment() == null ? null : issue.getAssignedDepartment().name())
                 .assignedAt(issue.getAssignedAt())

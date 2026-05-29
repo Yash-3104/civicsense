@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   LogOut,
+  Map,
   Trash2,
   Users,
 } from "lucide-react";
@@ -196,7 +197,6 @@ function safeCsvFilePart(value) {
 function todayCsvDate() {
   return new Date().toISOString().slice(0, 10);
 }
-
 
 export default function AdminDashboard() {
   const queryClient = useQueryClient();
@@ -623,8 +623,11 @@ export default function AdminDashboard() {
             </Link>
 
             <Link
-              to="/"
+              to="/map"
               className="
+                inline-flex
+                items-center
+                gap-2
                 rounded-lg
                 border
                 border-zinc-700
@@ -636,7 +639,8 @@ export default function AdminDashboard() {
                 hover:bg-zinc-800
               "
             >
-              Citizen Dashboard
+              <Map className="h-4 w-4" />
+              Operations Map
             </Link>
 
             <button
