@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
+@Profile("kafka-rollback")
 public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")

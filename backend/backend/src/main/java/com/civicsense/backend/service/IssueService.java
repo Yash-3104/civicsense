@@ -3,7 +3,6 @@ package com.civicsense.backend.service;
 import com.civicsense.backend.dto.CreateIssueRequest;
 import com.civicsense.backend.dto.EscalateIssueRequest;
 import com.civicsense.backend.dto.IssueFilterRequest;
-import com.civicsense.backend.dto.IssueImageUploadedEvent;
 import com.civicsense.backend.dto.IssueListResponse;
 import com.civicsense.backend.dto.IssueMapResponse;
 import com.civicsense.backend.dto.IssueActivityResponse;
@@ -63,7 +62,7 @@ public class IssueService {
     private final UserRepository userRepository;
     private final IssueMediaRepository issueMediaRepository;
     private final FileStorageService fileStorageService;
-    private final IssueEventProducer issueEventProducer;
+    private final AsyncAiProcessor asyncAiProcessor;
     private final RealtimeEventService realtimeEventService;
     private final AiServiceClient aiServiceClient;
     private final IssueActivityService issueActivityService;
@@ -986,12 +985,9 @@ public class IssueService {
                 getCurrentUserOrNull()
         );
 
-        issueEventProducer.publishImageUploaded(
-                IssueImageUploadedEvent.builder()
-                        .issueId(issue.getId())
-                        .filePath(storedFile.localPath().toString())
-                        .fileName(storedFile.storageKey())
-                        .build()
+        asyncAiProcessor.processIssue(
+                issue.getId(),
+                storedFile.localPath().toString()
         );
 
         return "Image uploaded, AI processing queued";

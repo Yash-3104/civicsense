@@ -20,7 +20,6 @@ Citizen reports issue with image -> AI assists category/verification -> Admin ve
 - PostgreSQL
 - Node.js + npm
 - Docker Desktop for the full local stack
-- Kafka is included in the Docker Compose workflow
 - AI service running on `http://localhost:8000` for image analysis features
 
 ## Docker Compose local development
@@ -37,7 +36,6 @@ Services:
 - Backend API: `http://localhost:8031`
 - AI service: `http://localhost:8000`
 - PostgreSQL: `localhost:5432`
-- Kafka: `localhost:9092`
 
 Create a local env file if you want to override defaults:
 
@@ -61,7 +59,9 @@ docker compose down -v
 
 Use `-v` carefully: it removes the named PostgreSQL/uploads volumes and deletes local compose data. Cloudinary remains optional through `STORAGE_PROVIDER=cloudinary` plus the Cloudinary variables in `.env`.
 
-The older `docker-compose.kafka.yml` is kept only for isolated Kafka testing; the normal full-stack workflow is the root `docker-compose.yml`.
+Image analysis runs asynchronously inside the backend after upload persistence. The normal full-stack workflow no longer starts Kafka or ZooKeeper.
+
+The older `docker-compose.kafka.yml` and rollback Spring profile are kept only for Kafka rollback/testing; the normal full-stack workflow is the root `docker-compose.yml`.
 
 ## Backend setup
 
@@ -95,7 +95,6 @@ CLOUDINARY_API_KEY
 CLOUDINARY_API_SECRET
 CLOUDINARY_FOLDER
 UPLOADS_PUBLIC
-KAFKA_BOOTSTRAP_SERVERS
 ```
 
 Run backend:
@@ -172,7 +171,27 @@ CLOUDINARY_API_SECRET=replace-with-api-secret
 CLOUDINARY_FOLDER=civicsense
 ```
 
-Cloudinary mode stores new display URLs from Cloudinary `secure_url` values. Older local image records still resolve through `PUBLIC_BASE_URL/uploads/...`, and the current AI/Kafka path still uses a local file path. Never commit real Cloudinary credentials.
+Cloudinary mode stores new display URLs from Cloudinary `secure_url` values. Older local image records still resolve through `PUBLIC_BASE_URL/uploads/...`, and AI analysis still uses the backend's local upload path after storage. Never commit real Cloudinary credentials.
+
+## Legacy Kafka rollback
+
+Kafka is no longer required for standard image processing. To test the legacy rollback path, start Kafka separately with:
+
+```bash
+docker compose -f docker-compose.kafka.yml up -d
+```
+
+Then start the backend with the `kafka-rollback` Spring profile and the legacy Kafka variables:
+
+```env
+SPRING_PROFILES_ACTIVE=dev,kafka-rollback
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CONSUMER_GROUP_ID=civicsense-ai-group
+KAFKA_AUTO_OFFSET_RESET=earliest
+KAFKA_TOPIC_ISSUE_IMAGE_UPLOADED=issue-image-uploaded
+```
+
+This profile is retained for rollback safety only and is not part of the standard deployment path.
 
 ## Manual SQL setup
 
