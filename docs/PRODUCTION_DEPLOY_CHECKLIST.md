@@ -23,9 +23,6 @@ CLOUDINARY_API_KEY=replace-with-api-key
 CLOUDINARY_API_SECRET=replace-with-api-secret
 CLOUDINARY_FOLDER=civicsense
 UPLOADS_PUBLIC=true
-KAFKA_BOOTSTRAP_SERVERS=broker:9092
-KAFKA_CONSUMER_GROUP_ID=civicsense-ai-group
-KAFKA_TOPIC_ISSUE_IMAGE_UPLOADED=issue-image-uploaded
 ```
 
 `JWT_SECRET`, `PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` are validated at startup in the `prod` profile. When `STORAGE_PROVIDER=cloudinary`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` are also required.
@@ -73,7 +70,8 @@ Never run `backend/backend/sql/demo_seed_optional.sql` on production.
 - Spring Boot backend from `backend/backend` with `SPRING_PROFILES_ACTIVE=prod`.
 - Frontend static build from `frontend`.
 - FastAPI AI service from `ai-service`.
-- Kafka broker if async image processing is enabled.
+
+Kafka and ZooKeeper are not required for the standard production image processing path. Uploaded images are persisted by the backend, then analyzed asynchronously through the backend-to-AI HTTP path.
 
 ## Security Checklist
 
@@ -84,7 +82,7 @@ Never run `backend/backend/sql/demo_seed_optional.sql` on production.
 - Prefer `STORAGE_PROVIDER=cloudinary` for production image storage. `STORAGE_PROVIDER=local` is allowed but local uploads are not ideal for production unless the upload volume is persisted and backed up.
 - Keep `UPLOADS_PUBLIC=true` only while local uploads are still used or old local image records must remain publicly readable.
 - If `UPLOADS_PUBLIC=false`, `/uploads/**` is not publicly permitted; API responses may still contain URLs, but static file access is restricted by security rules.
-- Do not delete the local upload or `cloudinary-temp` folders until the AI image pipeline no longer depends on local file paths.
+- Do not delete the local upload or `cloudinary-temp` folders; AI image analysis still uses backend-local file paths after storage, including when Cloudinary is enabled for public image delivery.
 
 ## Post-Deploy Verification
 

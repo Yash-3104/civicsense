@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
+@Profile("kafka-rollback")
 public class KafkaConfig {
 
     @Value("${app.kafka.topic.issue-image-uploaded}")
