@@ -10,7 +10,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import API from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -22,37 +22,18 @@ import {
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import AdminIssueTable from "./components/AdminIssueTable";
+import AdminIssuePagination from "./components/AdminIssuePagination";
+import AdminIssueToolbar from "./components/AdminIssueToolbar";
+import DepartmentPerformanceCard from "./components/DepartmentPerformanceCard";
 import ModerationFilters from "./components/ModerationFilters";
 import LiveOperationsFeed from "./components/LiveOperationsFeed";
 import { useAuthStore } from "@/store/useAuthStore";
-
-function getSlaState(issue) {
-  if (!issue || issue.status === "RESOLVED" || issue.status === "REJECTED") {
-    return "CLOSED";
-  }
-
-  if (!issue.slaDeadline) {
-    return "NOT_STARTED";
-  }
-
-  const deadline = new Date(issue.slaDeadline).getTime();
-
-  if (!Number.isFinite(deadline)) {
-    return "UNKNOWN";
-  }
-
-  const diffMs = deadline - Date.now();
-
-  if (issue.slaBreached || diffMs < 0) {
-    return "BREACHED";
-  }
-
-  if (diffMs <= 24 * 60 * 60 * 1000) {
-    return "DUE_SOON";
-  }
-
-  return "ON_TRACK";
-}
+import { useStickyDrawerScroll } from "@/hooks/useStickyDrawerScroll";
+import {
+  buildDepartmentPerformance,
+  buildIssueListPipeline,
+  getSlaState,
+} from "./utils/issueListPipeline";
 
 
 function csvEscape(value) {
@@ -207,17 +188,24 @@ export default function AdminDashboard() {
   const [selectedIssueId, setSelectedIssueId] = useState(null);
   const [selectedIssueSummary, setSelectedIssueSummary] = useState(null);
   const [activeFilter, setActiveFilter] = useState("ALL");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState("NEWEST_FIRST");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [liveEvents, setLiveEvents] = useState([]);
   const [isDeletingIssue, setIsDeletingIssue] = useState(false);
   const [deleteCandidateIssue, setDeleteCandidateIssue] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const { saveScrollPosition } = useStickyDrawerScroll(
+    Boolean(selectedIssueId || selectedIssueSummary)
+  );
 
-  const handleCloseDrawer = () => {
+  const handleCloseDrawer = useCallback(() => {
     setSelectedIssueId(null);
     setSelectedIssueSummary(null);
     setSearchParams({});
-  };
+  }, [setSearchParams]);
 
   const handleLogout = () => {
     handleCloseDrawer();
@@ -239,8 +227,12 @@ export default function AdminDashboard() {
     const notificationIssueId = searchParams.get("issueId");
 
     if (notificationIssueId) {
-      setSelectedIssueId(notificationIssueId);
-      setSelectedIssueSummary({ id: notificationIssueId });
+      const frameId = window.requestAnimationFrame(() => {
+        setSelectedIssueId(notificationIssueId);
+        setSelectedIssueSummary({ id: notificationIssueId });
+      });
+
+      return () => window.cancelAnimationFrame(frameId);
     }
   }, [searchParams]);
 
@@ -290,46 +282,23 @@ export default function AdminDashboard() {
     refetchOnWindowFocus: false,
   });
 
-  const filteredIssues = useMemo(() => {
-    switch (activeFilter) {
-      case "AI_FLAGGED":
-        return issues.filter((issue) => {
-          return (
-            (issue.fakeReportLikelihood || 0) >= 0.6 ||
-            (issue.duplicateLikelihood || 0) >= 0.55 ||
-            (issue.aiConfidenceScore || 1) <= 0.4
-          );
-        });
+  const issuePipeline = useMemo(
+    () =>
+      buildIssueListPipeline({
+        issues,
+        activeFilter,
+        searchTerm,
+        sortBy,
+        page,
+        pageSize,
+      }),
+    [issues, activeFilter, searchTerm, sortBy, page, pageSize]
+  );
 
-      case "DUPLICATES":
-        return issues.filter(
-          (issue) => (issue.duplicateLikelihood || 0) >= 0.55
-        );
-
-      case "LOW_CONFIDENCE":
-        return issues.filter(
-          (issue) => (issue.aiConfidenceScore || 1) <= 0.4
-        );
-
-      case "HIGH_SEVERITY":
-        return issues.filter((issue) => issue.severity === "HIGH");
-
-      case "UNRESOLVED":
-        return issues.filter((issue) => issue.status !== "RESOLVED");
-
-      case "PENDING_CLOSURE":
-        return issues.filter((issue) => issue.status === "PENDING_CLOSURE");
-
-      case "DUE_SOON":
-        return issues.filter((issue) => getSlaState(issue) === "DUE_SOON");
-
-      case "SLA_BREACHED":
-        return issues.filter((issue) => getSlaState(issue) === "BREACHED");
-
-      default:
-        return issues;
-    }
-  }, [issues, activeFilter]);
+  const departmentPerformance = useMemo(
+    () => buildDepartmentPerformance(issues),
+    [issues]
+  );
 
   const aiFlaggedCount = issues.filter((issue) => {
     return (
@@ -353,13 +322,13 @@ export default function AdminDashboard() {
 
 
   const handleExportVisibleIssues = () => {
-    const csv = buildAdminVisibleIssuesCsv(filteredIssues);
+    const csv = buildAdminVisibleIssuesCsv(issuePipeline.sortedIssues);
     const suffix = activeFilter === "ALL" ? "all" : activeFilter.toLowerCase();
 
     downloadTextCsv(csv, `Admin-${safeCsvFilePart(suffix)}-Current-View-${todayCsvDate()}.csv`);
 
     toast.success("CSV exported", {
-      description: "The current admin table view was exported as CSV.",
+      description: "The filtered, searched, and sorted admin view was exported as CSV.",
     });
   };
 
@@ -390,6 +359,7 @@ export default function AdminDashboard() {
   };
 
   const handleSelectIssue = (issue) => {
+    saveScrollPosition();
     setSelectedIssueId(issue.id);
     setSelectedIssueSummary(issue);
   };
@@ -397,8 +367,29 @@ export default function AdminDashboard() {
   const handleOpenMatchedIssue = (matchedIssue) => {
     if (!matchedIssue?.id) return;
 
+    saveScrollPosition();
     setSelectedIssueId(matchedIssue.id);
     setSelectedIssueSummary(matchedIssue);
+  };
+
+  const handleFilterChange = (filter) => {
+    setActiveFilter(filter);
+    setPage(1);
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setPage(1);
+  };
+
+  const handleSortChange = (value) => {
+    setSortBy(value);
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (value) => {
+    setPageSize(value);
+    setPage(1);
   };
 
   const handleRequestDeleteIssue = (issue) => {
@@ -566,7 +557,7 @@ export default function AdminDashboard() {
     return () => {
       disconnectIssueSocket();
     };
-  }, [queryClient, selectedIssueId]);
+  }, [handleCloseDrawer, queryClient, selectedIssueId]);
 
   if (isLoading) {
     return (
@@ -716,9 +707,13 @@ export default function AdminDashboard() {
         </div>
 
         <div className="mt-6">
+          <DepartmentPerformanceCard departments={departmentPerformance} />
+        </div>
+
+        <div className="mt-6">
           <ModerationFilters
             activeFilter={activeFilter}
-            setActiveFilter={setActiveFilter}
+            setActiveFilter={handleFilterChange}
           />
         </div>
 
@@ -809,15 +804,33 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {filteredIssues.length === 0 && (
+            <AdminIssueToolbar
+              searchTerm={searchTerm}
+              onSearchChange={handleSearchChange}
+              sortBy={sortBy}
+              onSortChange={handleSortChange}
+            />
+
+            {issuePipeline.sortedIssues.length === 0 && (
               <div className="mb-4 rounded-2xl border border-dashed border-zinc-700 bg-zinc-950/40 p-5 text-sm text-zinc-400">
                 No admin issues match the current filters. Clear filters or create a demo report to populate this table.
               </div>
             )}
 
             <AdminIssueTable
-              issues={filteredIssues}
+              issues={issuePipeline.items}
               onSelectIssue={handleSelectIssue}
+            />
+
+            <AdminIssuePagination
+              page={issuePipeline.page}
+              pageSize={pageSize}
+              totalPages={issuePipeline.totalPages}
+              totalItems={issuePipeline.totalItems}
+              startItem={issuePipeline.startItem}
+              endItem={issuePipeline.endItem}
+              onPageChange={setPage}
+              onPageSizeChange={handlePageSizeChange}
             />
           </section>
 

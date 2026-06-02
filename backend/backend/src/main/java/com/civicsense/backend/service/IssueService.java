@@ -141,9 +141,7 @@ public class IssueService {
         }
 
         if (status == IssueStatus.RESOLVED) {
-            validateAdminCanApproveClosure(issue);
-            issue.setSlaBreached(false);
-            clearEscalationDetails(issue);
+            validateAdminCanApproveClosure(issue);    
         }
 
         if (status == IssueStatus.PENDING_CLOSURE) {
@@ -168,9 +166,7 @@ public class IssueService {
             issue.setAssignedTo(null);
             issue.setAssignedDepartment(null);
             issue.setAssignedAt(null);
-            issue.setSlaDeadline(null);
-            issue.setSlaBreached(false);
-            clearEscalationDetails(issue);
+            issue.setSlaDeadline(null);   
         }
 
         if (status != IssueStatus.REJECTED) {
@@ -469,8 +465,6 @@ public class IssueService {
         issue.setAssignedDepartment(department);
         issue.setAssignedAt(LocalDateTime.now());
         issue.setSlaDeadline(calculateSlaDeadline(issue));
-        issue.setSlaBreached(false);
-        clearEscalationDetails(issue);
         issue.setStatus(IssueStatus.ASSIGNED);
         issue.setUpdatedAt(LocalDateTime.now());
 
@@ -929,7 +923,7 @@ public class IssueService {
                         .fakeReportLikelihood(issue.getFakeReportLikelihood())
                         .duplicateLikelihood(issue.getDuplicateLikelihood())
                         .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
-                        .resolutionImageUrl(issue.getResolutionImageUrl())
+                        .resolutionImageUrl(buildImageUrl(issue.getResolutionImageUrl()))
                         .resolvedAt(issue.getResolvedAt())
                         .rejectionReason(
                                 issue.getRejectionReason() == null
@@ -1116,19 +1110,6 @@ public class IssueService {
                 value.trim();
 
         return trimmed.isBlank() ? null : trimmed;
-    }
-
-    private void clearEscalationDetails(Issue issue) {
-
-        if (issue == null) {
-            return;
-        }
-
-        issue.setEscalationReason(null);
-        issue.setEscalationNotes(null);
-        issue.setEscalatedAt(null);
-        issue.setEscalatedBy(null);
-        issue.setEscalationLevel(null);
     }
 
     private String buildEscalationActivityMessage(
@@ -1609,7 +1590,7 @@ public class IssueService {
                 .fakeReportLikelihood(issue.getFakeReportLikelihood())
                 .duplicateLikelihood(issue.getDuplicateLikelihood())
                 .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
-                .resolutionImageUrl(issue.getResolutionImageUrl())
+                .resolutionImageUrl(buildImageUrl(issue.getResolutionImageUrl()))
                 .resolvedAt(issue.getResolvedAt())
                 .rejectionReason(
                         issue.getRejectionReason() == null
@@ -1689,7 +1670,7 @@ public class IssueService {
                 .possibleDuplicateIssueId(issue.getPossibleDuplicateIssueId())
                 .aiReasoning(issue.getAiReasoning())
                 .resolutionNotes(issue.getResolutionNotes())
-                .resolutionImageUrl(issue.getResolutionImageUrl())
+                .resolutionImageUrl(buildImageUrl(issue.getResolutionImageUrl()))
                 .resolvedAt(issue.getResolvedAt())
                 .rejectionReason(
                         issue.getRejectionReason() == null

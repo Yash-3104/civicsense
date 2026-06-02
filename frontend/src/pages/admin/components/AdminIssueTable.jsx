@@ -4,8 +4,6 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useMemo } from "react";
-
 const getSeverityStyles = (severity) => {
   switch (severity) {
     case "HIGH":
@@ -55,22 +53,6 @@ function getSlaBadge(issue) {
 }
 
 export default function AdminIssueTable({ issues, onSelectIssue }) {
-  const sortedIssues = useMemo(() => {
-    return [...issues].sort((a, b) => {
-      const aSlaPriority = getSlaBadge(a).label === "SLA Breached" ? 2 : getSlaBadge(a).label === "Due Soon" ? 1 : 0;
-      const bSlaPriority = getSlaBadge(b).label === "SLA Breached" ? 2 : getSlaBadge(b).label === "Due Soon" ? 1 : 0;
-
-      if (bSlaPriority !== aSlaPriority) {
-        return bSlaPriority - aSlaPriority;
-      }
-
-      const aRisk = (a.fakeReportLikelihood || 0) + (a.duplicateLikelihood || 0);
-      const bRisk = (b.fakeReportLikelihood || 0) + (b.duplicateLikelihood || 0);
-
-      return bRisk - aRisk;
-    });
-  }, [issues]);
-
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-800">
       <div className="grid grid-cols-12 gap-4 border-b border-zinc-800 bg-zinc-900 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -83,7 +65,7 @@ export default function AdminIssueTable({ issues, onSelectIssue }) {
       </div>
 
       <div className="divide-y divide-zinc-800">
-        {sortedIssues.map((issue) => {
+        {issues.map((issue) => {
           const fakeRisk = Math.round((issue.fakeReportLikelihood || 0) * 100);
           const duplicateRisk = Math.round((issue.duplicateLikelihood || 0) * 100);
           const sla = getSlaBadge(issue);

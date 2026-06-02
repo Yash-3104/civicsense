@@ -1,0 +1,17 @@
+.git
+.vscode
+.idea
+.env
+*.env
+*.log
+logs
+uploads
+frontend
+ai-service
+backend/backend/.env
+backend/backend/target
+backend/backend/logs
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+**/Thumbs.db

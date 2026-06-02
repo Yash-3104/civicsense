@@ -1,0 +1,11 @@
+.git
+.env
+*.env
+target
+logs
+*.log
+.mvn/timing.properties
+.vscode
+.idea
+.DS_Store
+Thumbs.db

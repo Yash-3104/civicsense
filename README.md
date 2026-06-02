@@ -19,8 +19,49 @@ Citizen reports issue with image -> AI assists category/verification -> Admin ve
 - Java 21
 - PostgreSQL
 - Node.js + npm
-- Kafka is optional for local demo if you are not testing async AI events
+- Docker Desktop for the full local stack
+- Kafka is included in the Docker Compose workflow
 - AI service running on `http://localhost:8000` for image analysis features
+
+## Docker Compose local development
+
+Docker Compose V1 runs the local development stack from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8031`
+- AI service: `http://localhost:8000`
+- PostgreSQL: `localhost:5432`
+- Kafka: `localhost:9092`
+
+Create a local env file if you want to override defaults:
+
+```bash
+cp .env.example .env
+```
+
+The compose stack uses named volumes for PostgreSQL data and local uploads, so data survives container restarts and `docker compose down`.
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Reset local database and upload persistence:
+
+```bash
+docker compose down -v
+```
+
+Use `-v` carefully: it removes the named PostgreSQL/uploads volumes and deletes local compose data. Cloudinary remains optional through `STORAGE_PROVIDER=cloudinary` plus the Cloudinary variables in `.env`.
+
+The older `docker-compose.kafka.yml` is kept only for isolated Kafka testing; the normal full-stack workflow is the root `docker-compose.yml`.
 
 ## Backend setup
 

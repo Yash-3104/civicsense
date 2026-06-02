@@ -18,6 +18,7 @@ import API from "@/services/api";
 import { useAuthStore } from "@/store/useAuthStore";
 import IssueDetailsDrawer from "@/components/issues/IssueDetailsDrawer";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import { useStickyDrawerScroll } from "@/hooks/useStickyDrawerScroll";
 import { toast } from "sonner";
 
 function formatLabel(value) {
@@ -154,13 +155,18 @@ export default function SupervisorDashboard() {
   const [selectedIssueId, setSelectedIssueId] = useState(null);
   const [exportingCsv, setExportingCsv] = useState(null);
   const [lastExportedAt, setLastExportedAt] = useState(null);
+  const { saveScrollPosition } = useStickyDrawerScroll(Boolean(selectedIssueId));
 
 
   useEffect(() => {
     const notificationIssueId = searchParams.get("issueId");
 
     if (notificationIssueId) {
-      setSelectedIssueId(notificationIssueId);
+      const frameId = window.requestAnimationFrame(() => {
+        setSelectedIssueId(notificationIssueId);
+      });
+
+      return () => window.cancelAnimationFrame(frameId);
     }
   }, [searchParams]);
 
@@ -281,6 +287,11 @@ export default function SupervisorDashboard() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     navigate("/login", { replace: true });
+  };
+
+  const handleSelectIssue = (issueId) => {
+    saveScrollPosition();
+    setSelectedIssueId(issueId);
   };
 
   return (
@@ -456,7 +467,7 @@ export default function SupervisorDashboard() {
                   {taskQueue.length === 0 ? (
                     <EmptyState message="No department tasks match this filter. Try All or check mapped departments." />
                   ) : (
-                    taskQueue.map((issue) => <TaskQueueCard key={issue.id} issue={issue} onClick={() => setSelectedIssueId(issue.id)} />)
+                    taskQueue.map((issue) => <TaskQueueCard key={issue.id} issue={issue} onClick={() => handleSelectIssue(issue.id)} />)
                   )}
                 </div>
               </div>
@@ -489,7 +500,7 @@ export default function SupervisorDashboard() {
                   {(overview?.slaQueue || []).length === 0 ? (
                     <EmptyState message="No escalated or SLA-breached issues right now." />
                   ) : (
-                    overview.slaQueue.map((issue) => <RiskQueueCard key={issue.id} issue={issue} onClick={() => setSelectedIssueId(issue.id)} />)
+                    overview.slaQueue.map((issue) => <RiskQueueCard key={issue.id} issue={issue} onClick={() => handleSelectIssue(issue.id)} />)
                   )}
                 </div>
               </div>

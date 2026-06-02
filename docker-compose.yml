@@ -1,0 +1,172 @@
+name: civicsense
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-civicsense_db}
+      POSTGRES_USER: ${POSTGRES_USER:-civicsense_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-civicsense_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: ruok
+    ports:
+      - "${ZOOKEEPER_PORT:-2181}:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "cub zk-ready localhost 2181 "]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_EXTERNAL_PORT:-9092}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_EXTERNAL_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      AI_CORS_ORIGINS: ${AI_CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      HF_HOME: /models/huggingface
+      TRANSFORMERS_CACHE: /models/huggingface
+      TZ: Asia/Kolkata
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    volumes:
+      - uploads_data:/app/uploads
+      - ai_model_cache:/models
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()\""]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 10m
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Kolkata
+      JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Kolkata
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: 8031
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-civicsense_db}
+      DB_USER: ${POSTGRES_USER:-civicsense_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-civicsense_password}
+      JPA_DDL_AUTO: none
+      FLYWAY_ENABLED: ${FLYWAY_ENABLED:-true}
+      FLYWAY_LOCATIONS: filesystem:/app/database/migrations
+      JWT_SECRET: ${JWT_SECRET:-civicsense_local_dev_secret_change_before_sharing_123456789}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-604800000}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8031}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000}
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://ai-service:8000}
+      FILE_UPLOAD_DIR: /app/uploads
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      UPLOADS_PUBLIC: ${UPLOADS_PUBLIC:-true}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-civicsense}
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-25MB}
+      MAX_REQUEST_SIZE: ${MAX_REQUEST_SIZE:-25MB}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:29092}
+      KAFKA_CONSUMER_GROUP_ID: ${KAFKA_CONSUMER_GROUP_ID:-civicsense-ai-group}
+      KAFKA_AUTO_OFFSET_RESET: ${KAFKA_AUTO_OFFSET_RESET:-earliest}
+      KAFKA_TOPIC_ISSUE_IMAGE_UPLOADED: ${KAFKA_TOPIC_ISSUE_IMAGE_UPLOADED:-issue-image-uploaded}
+    ports:
+      - "${BACKEND_PORT:-8031}:8031"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8031/actuator/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8031}
+      VITE_WS_URL: ${VITE_WS_URL:-http://localhost:8031/ws}
+      VITE_AI_PREVIEW_URL: ${VITE_AI_PREVIEW_URL:-http://localhost:8000/analyze-preview}
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5173').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  uploads_data:
+  ai_model_cache:
+  frontend_node_modules:

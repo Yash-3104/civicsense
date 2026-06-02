@@ -34,12 +34,14 @@ public class SecurityConfig {
                 ? new String[] {
                         "/api/auth/**",
                         "/api/public/**",
+                        "/actuator/health",
                         "/uploads/**",
                         "/ws/**"
                 }
                 : new String[] {
                         "/api/auth/**",
                         "/api/public/**",
+                        "/actuator/health",
                         "/ws/**"
                 };
 

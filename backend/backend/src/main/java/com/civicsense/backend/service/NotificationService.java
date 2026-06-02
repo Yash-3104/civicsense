@@ -255,15 +255,31 @@ public class NotificationService {
     }
 
     @Transactional
-    public void notifySupervisorNoteAdded(Issue issue, User actor) {
-        notifyUsersByRoles(
-                List.of(UserRole.ADMIN),
+public void notifySupervisorNoteAdded(Issue issue, User actor) {
+    String message =
+            safeUserName(actor) + " added a note on " + issueTitle(issue) + ".";
+
+    notifyUsersByRoles(
+            List.of(UserRole.ADMIN),
+            issue,
+            NotificationType.SUPERVISOR_NOTE,
+            "Supervisor note added",
+            message
+    );
+
+    if (issue != null
+            && issue.getAssignedTo() != null
+            && issue.getAssignedTo().getRole() == UserRole.WORKER) {
+
+        createForUser(
+                issue.getAssignedTo(),
                 issue,
                 NotificationType.SUPERVISOR_NOTE,
                 "Supervisor note added",
-                safeUserName(actor) + " added a note on " + issueTitle(issue) + "."
+                message
         );
     }
+}
 
     private void notifyCitizen(
             Issue issue,
